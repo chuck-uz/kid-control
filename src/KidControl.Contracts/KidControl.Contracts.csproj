@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KidControl.Contracts</AssemblyName>
+    <RootNamespace>KidControl.Contracts</RootNamespace>
+  </PropertyGroup>
+</Project>

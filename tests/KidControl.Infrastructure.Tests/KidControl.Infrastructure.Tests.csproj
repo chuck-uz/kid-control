@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KidControl.Infrastructure.Tests</AssemblyName>
+    <RootNamespace>KidControl.Infrastructure.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KidControl.Infrastructure\KidControl.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
