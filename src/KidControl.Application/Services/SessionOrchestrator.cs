@@ -1,11 +1,12 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using KidControl.Application.Interfaces;
 using KidControl.Contracts;
 using KidControl.Domain.Entities;
 using KidControl.Domain.Enums;
 using KidControl.Domain.ValueObjects;
 using Microsoft.Extensions.Hosting;
-using System.Security.Cryptography;
+using Microsoft.Extensions.Logging;
 
 namespace KidControl.Application.Services;
 
@@ -13,20 +14,27 @@ public sealed class SessionOrchestrator
 {
     private readonly object _sync = new();
     private readonly HashSet<long> _awaitingCustomRuleInput = [];
+    private readonly HashSet<long> _awaitingNightModeInput = [];
     private readonly ComputerSession _session;
     private readonly IUiNotifier _uiNotifier;
     private readonly ITelegramNotifier _telegramNotifier;
     private readonly IHostApplicationLifetime? _hostApplicationLifetime;
+    private readonly ILogger<SessionOrchestrator> _logger;
     private string? _pendingOtp;
     private DateTimeOffset _otpExpiresAt;
+    private TimeSpan _nightModeStart = TimeSpan.FromHours(22);
+    private TimeSpan _nightModeEnd = TimeSpan.FromHours(7);
+    private DateTimeOffset _lastNightUsageAlert = DateTimeOffset.MinValue;
 
     public SessionOrchestrator(
         IUiNotifier uiNotifier,
         ITelegramNotifier telegramNotifier,
+        ILogger<SessionOrchestrator> logger,
         IHostApplicationLifetime? hostApplicationLifetime = null)
     {
         _uiNotifier = uiNotifier ?? throw new ArgumentNullException(nameof(uiNotifier));
         _telegramNotifier = telegramNotifier ?? throw new ArgumentNullException(nameof(telegramNotifier));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hostApplicationLifetime = hostApplicationLifetime;
 
         _session = new ComputerSession();
@@ -34,17 +42,30 @@ public sealed class SessionOrchestrator
         _session.AddTime(TimeSpan.FromMinutes(60));
     }
 
+    public void SetNightModeWindow(TimeSpan start, TimeSpan end)
+    {
+        lock (_sync)
+        {
+            _nightModeStart = start;
+            _nightModeEnd = end;
+        }
+    }
+
     public async Task ProcessTickAsync()
     {
         SessionStateDto state;
         LockStatus previousStatus;
         LockStatus newStatus;
+        var isNightMode = false;
+
         lock (_sync)
         {
             previousStatus = _session.CurrentStatus;
+            isNightMode = IsNightMode(DateTimeOffset.Now.TimeOfDay);
             _session.Tick(TimeSpan.FromSeconds(1));
+
             newStatus = _session.CurrentStatus;
-            state = ToDto();
+            state = ToDto(isNightMode);
         }
 
         await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
@@ -55,6 +76,7 @@ public sealed class SessionOrchestrator
                 .BroadcastAsync("⚡ Время игры вышло. Компьютер перешел в режим блокировки.")
                 .ConfigureAwait(false);
         }
+
     }
 
     public async Task HandleTelegramCommandAsync(string text, long chatId)
@@ -68,6 +90,11 @@ public sealed class SessionOrchestrator
         }
 
         if (await TryHandleCustomRuleInputAsync(chatId, commandText).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await TryHandleNightModeInputAsync(chatId, commandText).ConfigureAwait(false))
         {
             return;
         }
@@ -146,12 +173,62 @@ public sealed class SessionOrchestrator
         }
     }
 
+    public void BeginNightModeInput(long chatId)
+    {
+        lock (_sync)
+        {
+            _awaitingNightModeInput.Add(chatId);
+        }
+    }
+
     public SessionStateDto GetCurrentState()
     {
         lock (_sync)
         {
-            return ToDto();
+            return ToDto(IsNightMode(DateTimeOffset.Now.TimeOfDay));
         }
+    }
+
+    public bool IsNightModeActiveNow()
+    {
+        lock (_sync)
+        {
+            return IsNightMode(DateTimeOffset.Now.TimeOfDay);
+        }
+    }
+
+    public async Task NotifyNightUsageAttemptAsync()
+    {
+        var shouldSend = false;
+        lock (_sync)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - _lastNightUsageAlert >= TimeSpan.FromMinutes(5))
+            {
+                _lastNightUsageAlert = now;
+                shouldSend = true;
+            }
+        }
+
+        if (shouldSend)
+        {
+            await _telegramNotifier
+                .BroadcastAsync("⚠️ Внимание: Была попытка использования ПК в ночное время")
+                .ConfigureAwait(false);
+        }
+    }
+
+    public async Task<string> UpdateNightModeWindow(TimeSpan start, TimeSpan end)
+    {
+        lock (_sync)
+        {
+            _nightModeStart = start;
+            _nightModeEnd = end;
+        }
+
+        _logger.LogInformation("Night mode window updated. Start={Start}, End={End}", start, end);
+        await _uiNotifier.NotifyStateChangedAsync(GetCurrentState()).ConfigureAwait(false);
+        return $"🌙 Ночной интервал обновлен: {start:hh\\:mm}-{end:hh\\:mm}.";
     }
 
     public async Task GenerateAndSendOtpAsync()
@@ -211,6 +288,52 @@ public sealed class SessionOrchestrator
         }
 
         _hostApplicationLifetime?.StopApplication();
+    }
+
+    public async Task ShutdownPc()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "shutdown.exe",
+                Arguments = "/s /t 10 /f",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            process?.WaitForExit(3000);
+            _logger.LogInformation("Shutdown command executed. ExitCode={ExitCode}", process?.ExitCode);
+            await _telegramNotifier.BroadcastAsync("🔌 Команда выключения ПК отправлена. Отключение через 10 секунд.")
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to execute shutdown command.");
+            await _telegramNotifier.BroadcastAsync("❌ Не удалось выполнить выключение ПК.").ConfigureAwait(false);
+        }
+    }
+
+    public async Task RestartPc()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "shutdown.exe",
+                Arguments = "/r /t 10 /f",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            process?.WaitForExit(3000);
+            _logger.LogInformation("Restart command executed. ExitCode={ExitCode}", process?.ExitCode);
+            await _telegramNotifier.BroadcastAsync("🔄 Команда перезагрузки ПК отправлена. Перезагрузка через 10 секунд.")
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to execute restart command.");
+            await _telegramNotifier.BroadcastAsync("❌ Не удалось выполнить перезагрузку ПК.").ConfigureAwait(false);
+        }
     }
 
     private string HandleBlock()
@@ -276,6 +399,39 @@ public sealed class SessionOrchestrator
         return true;
     }
 
+    public async Task<bool> TryHandleNightModeInputAsync(long chatId, string input)
+    {
+        bool isAwaiting;
+        lock (_sync)
+        {
+            isAwaiting = _awaitingNightModeInput.Contains(chatId);
+        }
+
+        if (!isAwaiting)
+        {
+            return false;
+        }
+
+        var parts = input.Split('-', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2 ||
+            !TimeSpan.TryParse(parts[0], out var start) ||
+            !TimeSpan.TryParse(parts[1], out var end))
+        {
+            await _telegramNotifier.SendReplyAsync(chatId, "❌ Неверный формат. Введите интервал как 21:30-08:00.")
+                .ConfigureAwait(false);
+            return true;
+        }
+
+        lock (_sync)
+        {
+            _awaitingNightModeInput.Remove(chatId);
+        }
+
+        var confirmation = await UpdateNightModeWindow(start, end).ConfigureAwait(false);
+        await _telegramNotifier.SendReplyAsync(chatId, confirmation).ConfigureAwait(false);
+        return true;
+    }
+
     private static (bool ok, int workMinutes, int restMinutes) TryParseSetRuleCommand(string commandText)
     {
         var parts = commandText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -294,14 +450,17 @@ public sealed class SessionOrchestrator
     private string BuildStatusMessage()
     {
         var state = ToDto();
-        return $"Статус: {GetStatusEmoji(state.Status)} {state.Status}. Осталось: {state.TimeRemaining:c}.";
+        var nightLabel = state.IsNightMode ? "активно" : "не активно";
+        return $"Статус: {GetStatusEmoji(state.Status)} {state.Status}. Осталось: {state.TimeRemaining:c}. Ночь ({_nightModeStart:hh\\:mm}-{_nightModeEnd:hh\\:mm}): {nightLabel}.";
     }
 
-    private SessionStateDto ToDto()
+    private SessionStateDto ToDto(bool? isNightModeOverride = null)
     {
+        var isNightMode = isNightModeOverride ?? IsNightMode(DateTimeOffset.Now.TimeOfDay);
         return new SessionStateDto(
             Status: _session.CurrentStatus.ToString(),
-            TimeRemaining: _session.TimeRemaining);
+            TimeRemaining: _session.TimeRemaining,
+            IsNightMode: isNightMode);
     }
 
     private static string GetStatusEmoji(string status)
@@ -311,7 +470,23 @@ public sealed class SessionOrchestrator
             nameof(LockStatus.Active) => "🟢",
             nameof(LockStatus.Blocked) => "🔴",
             nameof(LockStatus.ForceBlocked) => "🔒",
+            nameof(LockStatus.NightBlock) => "🌙",
             _ => "⚪"
         };
+    }
+
+    private bool IsNightMode(TimeSpan now)
+    {
+        if (_nightModeStart == _nightModeEnd)
+        {
+            return true;
+        }
+
+        if (_nightModeStart < _nightModeEnd)
+        {
+            return now >= _nightModeStart && now < _nightModeEnd;
+        }
+
+        return now >= _nightModeStart || now < _nightModeEnd;
     }
 }

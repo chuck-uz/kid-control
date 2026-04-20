@@ -46,6 +46,7 @@
             <StackPanel VerticalAlignment="Center"
                         HorizontalAlignment="Center">
                 <TextBlock Text="Время игры закончилось. Перерыв."
+                           x:Name="BlockReasonText"
                            Foreground="White"
                            FontFamily="Segoe UI"
                            FontWeight="SemiBold"

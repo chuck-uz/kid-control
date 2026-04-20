@@ -16,7 +16,7 @@ public sealed class ComputerSession
             throw new ArgumentOutOfRangeException(nameof(elapsed), "Elapsed time cannot be negative.");
         }
 
-        if (elapsed == TimeSpan.Zero || CurrentStatus == LockStatus.ForceBlocked)
+        if (elapsed == TimeSpan.Zero || CurrentStatus == LockStatus.ForceBlocked || CurrentStatus == LockStatus.NightBlock)
         {
             return;
         }
@@ -71,6 +71,12 @@ public sealed class ComputerSession
         {
             TimeRemaining = GetPlayDuration();
         }
+    }
+
+    public void SetNightBlock()
+    {
+        CurrentStatus = LockStatus.NightBlock;
+        TimeRemaining = TimeSpan.Zero;
     }
 
     public void SetRule(ScheduleRule rule)
