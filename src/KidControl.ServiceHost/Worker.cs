@@ -43,6 +43,11 @@ public sealed class Worker(
                 lastWatchdogCheck = DateTimeOffset.UtcNow;
                 try
                 {
+                    if (orchestrator.IsNightModeActiveNow() && !processWatchdog.IsUiRunning())
+                    {
+                        await orchestrator.NotifyNightUsageAttemptAsync().ConfigureAwait(false);
+                    }
+
                     var started = processWatchdog.EnsureUiRunning();
                     if (!started)
                     {

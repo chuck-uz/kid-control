@@ -98,6 +98,10 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             {
                 return;
             }
+            if (await _orchestrator.TryHandleNightModeInputAsync(chatId, normalized).ConfigureAwait(false))
+            {
+                return;
+            }
 
             if (normalized.Equals("/start", StringComparison.OrdinalIgnoreCase))
             {
@@ -112,9 +116,9 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                 return;
             }
 
-            if (normalized == "➕ 30 мин")
+            if (normalized == "➕ Добавить время")
             {
-                await _orchestrator.HandleTelegramCommandAsync("/addtime 30", chatId).ConfigureAwait(false);
+                await SendAddTimeInlineActionsAsync(chatId).ConfigureAwait(false);
                 return;
             }
 
@@ -133,6 +137,18 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             if (normalized == "💀 Выключить систему")
             {
                 await SendShutdownConfirmAsync(chatId).ConfigureAwait(false);
+                return;
+            }
+
+            if (normalized == "🔌 Выключить ПК")
+            {
+                await SendPcShutdownConfirmAsync(chatId).ConfigureAwait(false);
+                return;
+            }
+
+            if (normalized == "🔄 Перезагрузить ПК")
+            {
+                await SendPcRestartConfirmAsync(chatId).ConfigureAwait(false);
                 return;
             }
 
@@ -163,8 +179,17 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                 case "status_add_15":
                     await _orchestrator.HandleTelegramCommandAsync("/addtime 15", chatId).ConfigureAwait(false);
                     break;
+                case "status_add_10":
+                    await _orchestrator.HandleTelegramCommandAsync("/addtime 10", chatId).ConfigureAwait(false);
+                    break;
+                case "status_add_5":
+                    await _orchestrator.HandleTelegramCommandAsync("/addtime 5", chatId).ConfigureAwait(false);
+                    break;
                 case "status_add_60":
                     await _orchestrator.HandleTelegramCommandAsync("/addtime 60", chatId).ConfigureAwait(false);
+                    break;
+                case "status_add_30":
+                    await _orchestrator.HandleTelegramCommandAsync("/addtime 30", chatId).ConfigureAwait(false);
                     break;
                 case "status_setrule_60_15":
                     await _orchestrator.HandleTelegramCommandAsync("/setrule 60 15", chatId).ConfigureAwait(false);
@@ -185,6 +210,19 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                             text: "Введите время в формате: Работа/Отдых (например, 50/10)")
                         .ConfigureAwait(false);
                     break;
+                case "settings_night":
+                    _orchestrator.BeginNightModeInput(chatId);
+                    await _botClient.SendMessage(
+                            chatId: chatId,
+                            text: "Введите ночной интервал в формате 21:30-08:00")
+                        .ConfigureAwait(false);
+                    break;
+                case "pc_shutdown_confirm":
+                    await _orchestrator.ShutdownPc().ConfigureAwait(false);
+                    break;
+                case "pc_restart_confirm":
+                    await _orchestrator.RestartPc().ConfigureAwait(false);
+                    break;
                 case "shutdown_confirm":
                     await _orchestrator.ExecuteRemoteShutdownAsync(chatId).ConfigureAwait(false);
                     break;
@@ -202,9 +240,11 @@ public sealed class TelegramBotBackgroundService : BackgroundService
     {
         var keyboard = new ReplyKeyboardMarkup(new[]
         {
-            new KeyboardButton[] { "📊 Статус", "➕ 30 мин" },
+            new KeyboardButton[] { "📊 Статус", "➕ Добавить время" },
             new KeyboardButton[] { "🚫 Блок", "✅ Разблок" },
-            new KeyboardButton[] { "⚙️ Настройки", "💀 Выключить систему" }
+            new KeyboardButton[] { "⚙️ Настройки", "🔌 Выключить ПК" },
+            new KeyboardButton[] { "🔄 Перезагрузить ПК" },
+            new KeyboardButton[] { "💀 Выключить систему" }
         })
         {
             ResizeKeyboard = true,
@@ -231,6 +271,10 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             {
                 InlineKeyboardButton.WithCallbackData("🟠 30 / 10", "settings_30_10"),
                 InlineKeyboardButton.WithCallbackData("✍️ Свой вариант", "settings_custom")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🌙 Ночное время", "settings_night")
             }
         });
 
@@ -255,13 +299,46 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             .ConfigureAwait(false);
     }
 
+    private async Task SendPcShutdownConfirmAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("⚠️ ДА, ВЫКЛЮЧИТЬ КОМПЬЮТЕР", "pc_shutdown_confirm")
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "Подтвердите выключение ПК.",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendPcRestartConfirmAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            InlineKeyboardButton.WithCallbackData("⚠️ ДА, ПЕРЕЗАГРУЗИТЬ КОМПЬЮТЕР", "pc_restart_confirm")
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "Подтвердите перезагрузку ПК.",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
     private async Task SendStatusInlineActionsAsync(long chatId)
     {
         var inline = new InlineKeyboardMarkup(new[]
         {
             new[]
             {
+                InlineKeyboardButton.WithCallbackData("+5 мин", "status_add_5"),
+                InlineKeyboardButton.WithCallbackData("+10 мин", "status_add_10"),
                 InlineKeyboardButton.WithCallbackData("+15 мин", "status_add_15"),
+            },
+            new[]
+            {
                 InlineKeyboardButton.WithCallbackData("+60 мин", "status_add_60")
             },
             new[]
@@ -273,6 +350,30 @@ public sealed class TelegramBotBackgroundService : BackgroundService
         await _botClient.SendMessage(
                 chatId: chatId,
                 text: "📊 Быстрые действия:",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendAddTimeInlineActionsAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("+5 мин", "status_add_5"),
+                InlineKeyboardButton.WithCallbackData("+10 мин", "status_add_10"),
+                InlineKeyboardButton.WithCallbackData("+15 мин", "status_add_15")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("+30 мин", "status_add_30"),
+                InlineKeyboardButton.WithCallbackData("+60 мин", "status_add_60")
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "➕ Выберите, сколько добавить:",
                 replyMarkup: inline)
             .ConfigureAwait(false);
     }

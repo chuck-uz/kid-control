@@ -34,7 +34,8 @@ public partial class MainWindow : Window
 
         _viewModel.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(MainViewModel.IsBlocked))
+            if (args.PropertyName == nameof(MainViewModel.IsBlocked) ||
+                args.PropertyName == nameof(MainViewModel.IsNightBlocked))
             {
                 Dispatcher.Invoke(async () => await TransitionToStateAsync(_viewModel.IsBlocked));
             }
@@ -91,7 +92,18 @@ public partial class MainWindow : Window
             WindowState = WindowState.Maximized;
             WidgetBorder.Visibility = Visibility.Collapsed;
             BlockOverlay.Visibility = Visibility.Visible;
-            StartBlockedTimerAnimation();
+            if (_viewModel.IsNightBlocked)
+            {
+                BlockReasonText.Text = "Спокойной ночи, увидимся завтра!";
+                BlockedTimerText.Visibility = Visibility.Collapsed;
+                StopBlockedTimerAnimation();
+            }
+            else
+            {
+                BlockReasonText.Text = "Время игры закончилось. Перерыв.";
+                BlockedTimerText.Visibility = Visibility.Visible;
+                StartBlockedTimerAnimation();
+            }
         }
         else
         {
@@ -104,6 +116,8 @@ public partial class MainWindow : Window
             MoveWidgetToCorner();
             ApplyClickThrough(isBlocked: false);
             StopBlockedTimerAnimation();
+            BlockedTimerText.Visibility = Visibility.Visible;
+            BlockReasonText.Text = "Время игры закончилось. Перерыв.";
         }
     }
 
