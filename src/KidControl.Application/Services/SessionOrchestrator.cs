@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using KidControl.Application.Interfaces;
+using KidControl.Application.Models;
 using KidControl.Contracts;
 using KidControl.Domain.Entities;
 using KidControl.Domain.Enums;
@@ -18,6 +19,7 @@ public sealed class SessionOrchestrator
     private readonly ComputerSession _session;
     private readonly IUiNotifier _uiNotifier;
     private readonly ITelegramNotifier _telegramNotifier;
+    private readonly ISessionStateRepository _sessionStateRepository;
     private readonly IHostApplicationLifetime? _hostApplicationLifetime;
     private readonly ILogger<SessionOrchestrator> _logger;
     private string? _pendingOtp;
@@ -29,17 +31,21 @@ public sealed class SessionOrchestrator
     public SessionOrchestrator(
         IUiNotifier uiNotifier,
         ITelegramNotifier telegramNotifier,
+        ISessionStateRepository sessionStateRepository,
         ILogger<SessionOrchestrator> logger,
         IHostApplicationLifetime? hostApplicationLifetime = null)
     {
         _uiNotifier = uiNotifier ?? throw new ArgumentNullException(nameof(uiNotifier));
         _telegramNotifier = telegramNotifier ?? throw new ArgumentNullException(nameof(telegramNotifier));
+        _sessionStateRepository = sessionStateRepository ?? throw new ArgumentNullException(nameof(sessionStateRepository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hostApplicationLifetime = hostApplicationLifetime;
 
         _session = new ComputerSession();
         _session.SetRule(new ScheduleRule(playMinutes: 60, restMinutes: 15));
         _session.AddTime(TimeSpan.FromMinutes(60));
+        RestorePersistedState();
+        SaveStateSnapshot();
     }
 
     public void SetNightModeWindow(TimeSpan start, TimeSpan end)
@@ -61,6 +67,12 @@ public sealed class SessionOrchestrator
         lock (_sync)
         {
             previousStatus = _session.CurrentStatus;
+            if (_session.CurrentStatus == LockStatus.Paused)
+            {
+                state = ToDto(isNightModeOverride: IsNightMode(DateTimeOffset.Now.TimeOfDay));
+                return;
+            }
+
             isNightMode = IsNightMode(DateTimeOffset.Now.TimeOfDay);
             _session.Tick(TimeSpan.FromSeconds(1));
 
@@ -69,6 +81,7 @@ public sealed class SessionOrchestrator
         }
 
         await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
+        SaveStateSnapshot();
 
         if (previousStatus == LockStatus.Active && newStatus == LockStatus.Blocked)
         {
@@ -139,6 +152,7 @@ public sealed class SessionOrchestrator
 
         await _telegramNotifier.SendReplyAsync(chatId, reply).ConfigureAwait(false);
         await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
+        SaveStateSnapshot();
     }
 
     public async Task<string> UpdateRules(TimeSpan workTime, TimeSpan restTime)
@@ -162,7 +176,23 @@ public sealed class SessionOrchestrator
         }
 
         await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
+        SaveStateSnapshot();
         return $"✅ Новое правило установлено: {(int)workTime.TotalMinutes} мин работы и {(int)restTime.TotalMinutes} мин отдыха. Таймер на ПК обновлен.";
+    }
+
+    public async Task<string> ResetSessionTimeAsync()
+    {
+        SessionStateDto state;
+        lock (_sync)
+        {
+            var rule = _session.CurrentRule ?? new ScheduleRule(playMinutes: 60, restMinutes: 15);
+            _session.SetRuleAndResetPhase(rule);
+            state = ToDto();
+        }
+
+        await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
+        SaveStateSnapshot();
+        return "Таймер сброшен на текущий игровой интервал.";
     }
 
     public void BeginCustomRuleInput(long chatId)
@@ -228,6 +258,7 @@ public sealed class SessionOrchestrator
 
         _logger.LogInformation("Night mode window updated. Start={Start}, End={End}", start, end);
         await _uiNotifier.NotifyStateChangedAsync(GetCurrentState()).ConfigureAwait(false);
+        SaveStateSnapshot();
         return $"🌙 Ночной интервал обновлен: {start:hh\\:mm}-{end:hh\\:mm}.";
     }
 
@@ -288,6 +319,141 @@ public sealed class SessionOrchestrator
         }
 
         _hostApplicationLifetime?.StopApplication();
+    }
+
+    public bool IsPaused()
+    {
+        lock (_sync)
+        {
+            return _session.CurrentStatus == LockStatus.Paused;
+        }
+    }
+
+    public async Task<string> PauseSystem()
+    {
+        lock (_sync)
+        {
+            _session.SetPaused();
+        }
+
+        EnsureUiStopped();
+        SaveStateSnapshot();
+        await _uiNotifier.NotifyStateChangedAsync(GetCurrentState()).ConfigureAwait(false);
+        return "Система на паузе. Контроль отключен, но я остаюсь на связи.";
+    }
+
+    public async Task<string> ResumeSystem()
+    {
+        lock (_sync)
+        {
+            if (_session.CurrentStatus == LockStatus.Paused)
+            {
+                _session.ForceUnblock();
+            }
+        }
+
+        TryLaunchUiHostAfterResume();
+        SaveStateSnapshot();
+        await _uiNotifier.NotifyStateChangedAsync(GetCurrentState()).ConfigureAwait(false);
+        return "Система включена. Контроль возобновлен.";
+    }
+
+    public string GetCompactStatusText()
+    {
+        lock (_sync)
+        {
+            return _session.CurrentStatus switch
+            {
+                LockStatus.Active => "🟢 Активно",
+                LockStatus.Blocked => "🔴 Блок",
+                LockStatus.ForceBlocked => "🔒 Принудительный блок",
+                LockStatus.Paused => "⏸️ Пауза",
+                LockStatus.NightBlock => "🌙 Ночной блок",
+                _ => "⚪ Неизвестно"
+            };
+        }
+    }
+
+    public string GetStatusDetailsText()
+    {
+        lock (_sync)
+        {
+            var status = _session.CurrentStatus switch
+            {
+                LockStatus.Active => "🟢 Активно",
+                LockStatus.Blocked => "🔴 Блок",
+                LockStatus.ForceBlocked => "🔴 Блок",
+                LockStatus.Paused => "⏸️ Пауза",
+                LockStatus.NightBlock => "🔴 Блок",
+                _ => "⚪ Неизвестно"
+            };
+
+            return $"Статус: {status}\n⏳ Осталось: {_session.TimeRemaining:hh\\:mm\\:ss}";
+        }
+    }
+
+    public async Task<string> AddTimePresetAsync(int minutes)
+    {
+        if (minutes <= 0)
+        {
+            return "Некорректное значение времени.";
+        }
+
+        SessionStateDto state;
+        lock (_sync)
+        {
+            _session.AddTime(TimeSpan.FromMinutes(minutes));
+            state = ToDto();
+        }
+
+        await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
+        SaveStateSnapshot();
+        return $"Добавлено {minutes} минут. Новый остаток: {state.TimeRemaining:hh\\:mm\\:ss}";
+    }
+
+    public void EnsureUiStopped()
+    {
+        foreach (var process in Process.GetProcessesByName("KidControl.UiHost"))
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Best-effort, ignore per-process failures.
+            }
+        }
+    }
+
+    public async Task HardKill()
+    {
+        EnsureUiStopped();
+        SaveStateSnapshot();
+
+        // Do not block kill if Telegram API hangs.
+        try
+        {
+            var broadcastTask = _telegramNotifier.BroadcastAsync("🛑 Служба завершает процесс по команде администратора.");
+            var completed = await Task.WhenAny(broadcastTask, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+            if (completed == broadcastTask)
+            {
+                await broadcastTask.ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "HardKill broadcast failed.");
+        }
+
+        _hostApplicationLifetime?.StopApplication();
+
+        // Fallback in case host stop is blocked by a hosted service.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(4)).ConfigureAwait(false);
+            Environment.Exit(0);
+        });
     }
 
     public async Task ShutdownPc()
@@ -471,6 +637,7 @@ public sealed class SessionOrchestrator
             nameof(LockStatus.Blocked) => "🔴",
             nameof(LockStatus.ForceBlocked) => "🔒",
             nameof(LockStatus.NightBlock) => "🌙",
+            nameof(LockStatus.Paused) => "⏸️",
             _ => "⚪"
         };
     }
@@ -488,5 +655,75 @@ public sealed class SessionOrchestrator
         }
 
         return now >= _nightModeStart || now < _nightModeEnd;
+    }
+
+    private void RestorePersistedState()
+    {
+        try
+        {
+            var persisted = _sessionStateRepository.Load();
+            if (persisted is null)
+            {
+                return;
+            }
+
+            var delta = DateTimeOffset.Now - persisted.LastUpdateTimestamp;
+            if (delta < TimeSpan.Zero)
+            {
+                delta = TimeSpan.Zero;
+            }
+
+            _session.RestoreState(persisted.CurrentStatus, persisted.TimeRemaining);
+            if (delta >= TimeSpan.FromMinutes(1))
+            {
+                _session.Tick(delta);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to restore persisted session state.");
+        }
+    }
+
+    private void SaveStateSnapshot()
+    {
+        try
+        {
+            SessionPersistenceState snapshot;
+            lock (_sync)
+            {
+                snapshot = new SessionPersistenceState(
+                    TimeRemaining: _session.TimeRemaining,
+                    CurrentStatus: _session.CurrentStatus,
+                    LastUpdateTimestamp: DateTimeOffset.Now);
+            }
+
+            _sessionStateRepository.Save(snapshot);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist current session snapshot.");
+        }
+    }
+
+    private void TryLaunchUiHostAfterResume()
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "schtasks.exe",
+                Arguments = "/Run /TN \"KidControl.UiHost.Launch\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            process?.WaitForExit(3000);
+            _logger.LogInformation("Resume UI launch attempt via scheduler finished. ExitCode={ExitCode}", process?.ExitCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to trigger UI launch after resume.");
+        }
     }
 }

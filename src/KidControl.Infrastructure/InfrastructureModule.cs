@@ -1,6 +1,7 @@
 using KidControl.Application.Interfaces;
 using KidControl.Infrastructure.Configuration;
 using KidControl.Infrastructure.Ipc;
+using KidControl.Infrastructure.Persistence;
 using KidControl.Infrastructure.Telegram;
 using KidControl.Infrastructure.Windows;
 using Microsoft.Extensions.Configuration;
@@ -29,6 +30,7 @@ public static class InfrastructureModule
 
         services.AddSingleton<ITelegramNotifier, TelegramNotifier>();
         services.AddSingleton<IUiNotifier, NamedPipeUiNotifier>();
+        services.AddSingleton<ISessionStateRepository, JsonFileStateRepository>();
         services.AddSingleton<ProcessWatchdog>();
         services.AddSingleton<TaskSchedulerManager>();
 

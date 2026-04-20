@@ -14,7 +14,8 @@ public sealed class SessionOrchestratorTests
     {
         var uiNotifier = new Mock<IUiNotifier>();
         var telegramNotifier = new Mock<ITelegramNotifier>();
-        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, Mock.Of<ILogger<SessionOrchestrator>>());
+        var sessionStateRepository = new Mock<ISessionStateRepository>();
+        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, sessionStateRepository.Object, Mock.Of<ILogger<SessionOrchestrator>>());
 
         await orchestrator.ProcessTickAsync();
 
@@ -28,7 +29,8 @@ public sealed class SessionOrchestratorTests
     {
         var uiNotifier = new Mock<IUiNotifier>();
         var telegramNotifier = new Mock<ITelegramNotifier>();
-        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, Mock.Of<ILogger<SessionOrchestrator>>());
+        var sessionStateRepository = new Mock<ISessionStateRepository>();
+        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, sessionStateRepository.Object, Mock.Of<ILogger<SessionOrchestrator>>());
         const long chatId = 1001;
 
         await orchestrator.HandleTelegramCommandAsync("/block", chatId);
@@ -48,7 +50,8 @@ public sealed class SessionOrchestratorTests
     {
         var uiNotifier = new Mock<IUiNotifier>();
         var telegramNotifier = new Mock<ITelegramNotifier>();
-        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, Mock.Of<ILogger<SessionOrchestrator>>());
+        var sessionStateRepository = new Mock<ISessionStateRepository>();
+        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, sessionStateRepository.Object, Mock.Of<ILogger<SessionOrchestrator>>());
         const long chatId = 1002;
 
         var before = orchestrator.GetCurrentState().TimeRemaining;
@@ -68,7 +71,8 @@ public sealed class SessionOrchestratorTests
     {
         var uiNotifier = new Mock<IUiNotifier>();
         var telegramNotifier = new Mock<ITelegramNotifier>();
-        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, Mock.Of<ILogger<SessionOrchestrator>>());
+        var sessionStateRepository = new Mock<ISessionStateRepository>();
+        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, sessionStateRepository.Object, Mock.Of<ILogger<SessionOrchestrator>>());
 
         var confirmation = await orchestrator.UpdateRules(TimeSpan.FromMinutes(45), TimeSpan.FromMinutes(15));
         var state = orchestrator.GetCurrentState();
@@ -83,7 +87,8 @@ public sealed class SessionOrchestratorTests
     {
         var uiNotifier = new Mock<IUiNotifier>();
         var telegramNotifier = new Mock<ITelegramNotifier>();
-        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, Mock.Of<ILogger<SessionOrchestrator>>());
+        var sessionStateRepository = new Mock<ISessionStateRepository>();
+        var orchestrator = new SessionOrchestrator(uiNotifier.Object, telegramNotifier.Object, sessionStateRepository.Object, Mock.Of<ILogger<SessionOrchestrator>>());
         const long chatId = 2001;
 
         orchestrator.BeginCustomRuleInput(chatId);
