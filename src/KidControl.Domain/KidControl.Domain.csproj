@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KidControl.Domain</AssemblyName>
+    <RootNamespace>KidControl.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

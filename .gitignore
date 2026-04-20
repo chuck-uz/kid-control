@@ -208,6 +208,7 @@ DocProject/Help/html
 
 # Click-Once directory
 publish/
+Build/
 
 # Publish Web Output
 *.[Pp]ublish.xml
@@ -427,3 +428,8 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Local secrets / access tokens
+src/KidControl.ServiceHost/appsettings.json
+**/appsettings.Local.json
+**/appsettings.Secrets.json

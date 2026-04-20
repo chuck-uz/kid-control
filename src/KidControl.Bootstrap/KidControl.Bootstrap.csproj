@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KidControl.Bootstrap</AssemblyName>
+    <RootNamespace>KidControl.Bootstrap</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KidControl.Contracts\KidControl.Contracts.csproj" />
+  </ItemGroup>
+</Project>
