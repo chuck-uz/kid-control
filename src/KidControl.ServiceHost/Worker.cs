@@ -31,7 +31,10 @@ public sealed class Worker(
         {
             try
             {
-                await orchestrator.ProcessTickAsync().ConfigureAwait(false);
+                if (!orchestrator.IsPaused())
+                {
+                    await orchestrator.ProcessTickAsync().ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {
@@ -43,6 +46,13 @@ public sealed class Worker(
                 lastWatchdogCheck = DateTimeOffset.UtcNow;
                 try
                 {
+                    if (orchestrator.IsPaused())
+                    {
+                        orchestrator.EnsureUiStopped();
+                        await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+                        continue;
+                    }
+
                     if (orchestrator.IsNightModeActiveNow() && !processWatchdog.IsUiRunning())
                     {
                         await orchestrator.NotifyNightUsageAttemptAsync().ConfigureAwait(false);

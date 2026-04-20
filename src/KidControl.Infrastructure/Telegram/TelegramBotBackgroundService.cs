@@ -111,54 +111,33 @@ public sealed class TelegramBotBackgroundService : BackgroundService
 
             if (normalized == "📊 Статус")
             {
-                await _orchestrator.HandleTelegramCommandAsync("/status", chatId).ConfigureAwait(false);
-                await SendStatusInlineActionsAsync(chatId).ConfigureAwait(false);
+                await SendStatusFolderAsync(chatId).ConfigureAwait(false);
                 return;
             }
 
-            if (normalized == "➕ Добавить время")
+            if (normalized == "➕ Время")
             {
-                await SendAddTimeInlineActionsAsync(chatId).ConfigureAwait(false);
+                await SendTimeFolderAsync(chatId).ConfigureAwait(false);
                 return;
             }
 
-            if (normalized == "🚫 Блок")
+            if (normalized == "🎮 Приложение")
             {
-                await _orchestrator.HandleTelegramCommandAsync("/block", chatId).ConfigureAwait(false);
+                await SendApplicationFolderAsync(chatId).ConfigureAwait(false);
                 return;
             }
 
-            if (normalized == "✅ Разблок")
+            if (normalized == "💻 Компьютер")
             {
-                await _orchestrator.HandleTelegramCommandAsync("/unblock", chatId).ConfigureAwait(false);
+                await SendComputerFolderAsync(chatId).ConfigureAwait(false);
                 return;
             }
 
-            if (normalized == "💀 Выключить систему")
+            if (normalized == "⚙️ Интервалы")
             {
-                await SendShutdownConfirmAsync(chatId).ConfigureAwait(false);
+                await SendIntervalsFolderAsync(chatId).ConfigureAwait(false);
                 return;
             }
-
-            if (normalized == "🔌 Выключить ПК")
-            {
-                await SendPcShutdownConfirmAsync(chatId).ConfigureAwait(false);
-                return;
-            }
-
-            if (normalized == "🔄 Перезагрузить ПК")
-            {
-                await SendPcRestartConfirmAsync(chatId).ConfigureAwait(false);
-                return;
-            }
-
-            if (normalized == "⚙️ Настройки")
-            {
-                await SendSettingsInlineActionsAsync(chatId).ConfigureAwait(false);
-                return;
-            }
-
-            await _orchestrator.HandleTelegramCommandAsync(normalized, chatId).ConfigureAwait(false);
         }
     }
 
@@ -176,75 +155,122 @@ public sealed class TelegramBotBackgroundService : BackgroundService
         {
             switch (callbackQuery.Data)
             {
-                case "status_add_15":
-                    await _orchestrator.HandleTelegramCommandAsync("/addtime 15", chatId).ConfigureAwait(false);
-                    break;
-                case "status_add_10":
-                    await _orchestrator.HandleTelegramCommandAsync("/addtime 10", chatId).ConfigureAwait(false);
-                    break;
-                case "status_add_5":
-                    await _orchestrator.HandleTelegramCommandAsync("/addtime 5", chatId).ConfigureAwait(false);
-                    break;
-                case "status_add_60":
-                    await _orchestrator.HandleTelegramCommandAsync("/addtime 60", chatId).ConfigureAwait(false);
-                    break;
-                case "status_add_30":
-                    await _orchestrator.HandleTelegramCommandAsync("/addtime 30", chatId).ConfigureAwait(false);
-                    break;
-                case "status_setrule_60_15":
-                    await _orchestrator.HandleTelegramCommandAsync("/setrule 60 15", chatId).ConfigureAwait(false);
-                    break;
-                case "settings_60_15":
+                case "folder_status_block":
+                    await _orchestrator.HandleTelegramCommandAsync("/block", chatId).ConfigureAwait(false);
+                    await UpdateStatusFolderAsync(callbackQuery).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_status_unblock":
+                    await _orchestrator.HandleTelegramCommandAsync("/unblock", chatId).ConfigureAwait(false);
+                    await UpdateStatusFolderAsync(callbackQuery).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_15":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 15).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_30":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 30).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_60":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 60).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_5":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 5).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_10":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 10).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_20":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 20).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_25":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 25).ConfigureAwait(false);
+                    return;
+                case "folder_time_add_40":
+                    await ConfirmPresetAddTimeAsync(callbackQuery.Id, 40).ConfigureAwait(false);
+                    return;
+                case "folder_time_reset":
+                    await _orchestrator.ResetSessionTimeAsync().ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Таймер сброшен").ConfigureAwait(false);
+                    return;
+                case "folder_app_pause":
+                    await _orchestrator.PauseSystem().ConfigureAwait(false);
+                    await UpdateApplicationFolderAsync(callbackQuery).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Система приостановлена").ConfigureAwait(false);
+                    return;
+                case "folder_app_resume":
+                    await _orchestrator.ResumeSystem().ConfigureAwait(false);
+                    await UpdateApplicationFolderAsync(callbackQuery).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Система возобновлена").ConfigureAwait(false);
+                    return;
+                case "folder_app_kill_confirm":
+                    await SendHardKillConfirmAsync(chatId).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_app_kill_yes":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Останавливаю службу...").ConfigureAwait(false);
+                    await _orchestrator.HardKill().ConfigureAwait(false);
+                    return;
+                case "folder_app_kill_cancel":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Отменено").ConfigureAwait(false);
+                    return;
+                case "folder_pc_shutdown_confirm":
+                    await SendPcShutdownConfirmAsync(chatId).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_pc_shutdown_yes":
+                    await _orchestrator.ShutdownPc().ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Команда выключения отправлена").ConfigureAwait(false);
+                    return;
+                case "folder_pc_shutdown_cancel":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Отменено").ConfigureAwait(false);
+                    return;
+                case "folder_pc_wake":
+                    await SendPcRestartConfirmAsync(chatId).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_pc_restart_yes":
+                    await _orchestrator.RestartPc().ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Команда перезагрузки отправлена").ConfigureAwait(false);
+                    return;
+                case "folder_pc_restart_cancel":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Отменено").ConfigureAwait(false);
+                    return;
+                case "folder_interval_60_15":
                     await ApplyPresetRuleAsync(chatId, 60, 15).ConfigureAwait(false);
-                    break;
-                case "settings_45_15":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Интервал 60/15").ConfigureAwait(false);
+                    return;
+                case "folder_interval_45_15":
                     await ApplyPresetRuleAsync(chatId, 45, 15).ConfigureAwait(false);
-                    break;
-                case "settings_30_10":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Интервал 45/15").ConfigureAwait(false);
+                    return;
+                case "folder_interval_30_10":
                     await ApplyPresetRuleAsync(chatId, 30, 10).ConfigureAwait(false);
-                    break;
-                case "settings_custom":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Интервал 30/10").ConfigureAwait(false);
+                    return;
+                case "folder_interval_custom":
                     _orchestrator.BeginCustomRuleInput(chatId);
                     await _botClient.SendMessage(
                             chatId: chatId,
                             text: "Введите время в формате: Работа/Отдых (например, 50/10)")
                         .ConfigureAwait(false);
-                    break;
-                case "settings_night":
-                    _orchestrator.BeginNightModeInput(chatId);
-                    await _botClient.SendMessage(
-                            chatId: chatId,
-                            text: "Введите ночной интервал в формате 21:30-08:00")
-                        .ConfigureAwait(false);
-                    break;
-                case "pc_shutdown_confirm":
-                    await _orchestrator.ShutdownPc().ConfigureAwait(false);
-                    break;
-                case "pc_restart_confirm":
-                    await _orchestrator.RestartPc().ConfigureAwait(false);
-                    break;
-                case "shutdown_confirm":
-                    await _orchestrator.ExecuteRemoteShutdownAsync(chatId).ConfigureAwait(false);
-                    break;
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
                 default:
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Неизвестное действие.", true)
                         .ConfigureAwait(false);
                     return;
             }
         }
-
-        await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
     }
 
     private async Task SendMainMenuAsync(long chatId)
     {
         var keyboard = new ReplyKeyboardMarkup(new[]
         {
-            new KeyboardButton[] { "📊 Статус", "➕ Добавить время" },
-            new KeyboardButton[] { "🚫 Блок", "✅ Разблок" },
-            new KeyboardButton[] { "⚙️ Настройки", "🔌 Выключить ПК" },
-            new KeyboardButton[] { "🔄 Перезагрузить ПК" },
-            new KeyboardButton[] { "💀 Выключить систему" }
+            new KeyboardButton[] { "📊 Статус", "➕ Время" },
+            new KeyboardButton[] { "🎮 Приложение", "💻 Компьютер" },
+            new KeyboardButton[] { "⚙️ Интервалы" }
         })
         {
             ResizeKeyboard = true,
@@ -258,43 +284,134 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             .ConfigureAwait(false);
     }
 
-    private async Task SendSettingsInlineActionsAsync(long chatId)
+    private async Task SendStatusFolderAsync(long chatId)
     {
         var inline = new InlineKeyboardMarkup(new[]
         {
             new[]
             {
-                InlineKeyboardButton.WithCallbackData("🟢 60 / 15", "settings_60_15"),
-                InlineKeyboardButton.WithCallbackData("🟡 45 / 15", "settings_45_15")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("🟠 30 / 10", "settings_30_10"),
-                InlineKeyboardButton.WithCallbackData("✍️ Свой вариант", "settings_custom")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("🌙 Ночное время", "settings_night")
+                InlineKeyboardButton.WithCallbackData("🚫 Блок", "folder_status_block"),
+                InlineKeyboardButton.WithCallbackData("✅ Разблок", "folder_status_unblock")
             }
         });
 
         await _botClient.SendMessage(
                 chatId: chatId,
-                text: "⚙️ Выберите правило времени:",
+                text: _orchestrator.GetStatusDetailsText(),
                 replyMarkup: inline)
             .ConfigureAwait(false);
     }
 
-    private async Task SendShutdownConfirmAsync(long chatId)
+    private async Task SendTimeFolderAsync(long chatId)
     {
         var inline = new InlineKeyboardMarkup(new[]
         {
-            InlineKeyboardButton.WithCallbackData("⚠️ ПОДТВЕРЖДАЮ, ВЫКЛЮЧИТЬ", "shutdown_confirm")
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("+5 мин", "folder_time_add_5"),
+                InlineKeyboardButton.WithCallbackData("+10 мин", "folder_time_add_10"),
+                InlineKeyboardButton.WithCallbackData("+15 мин", "folder_time_add_15"),
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("+20 мин", "folder_time_add_20"),
+                InlineKeyboardButton.WithCallbackData("+25 мин", "folder_time_add_25"),
+                InlineKeyboardButton.WithCallbackData("+30 мин", "folder_time_add_30")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("+40 мин", "folder_time_add_40"),
+                InlineKeyboardButton.WithCallbackData("+1 час", "folder_time_add_60"),
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🧹 Сбросить таймер", "folder_time_reset")
+            }
         });
 
         await _botClient.SendMessage(
                 chatId: chatId,
-                text: "⚡ Подтвердите полное отключение приложения.",
+                text: "➕ Управление временем:",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendApplicationFolderAsync(long chatId)
+    {
+        var isPaused = _orchestrator.IsPaused();
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    isPaused ? "▶️ Включить систему" : "⏸️ Поставить на паузу",
+                    isPaused ? "folder_app_resume" : "folder_app_pause"),
+                InlineKeyboardButton.WithCallbackData("🛑 Полный Килл", "folder_app_kill_confirm")
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: isPaused ? "🎮 Приложение (сейчас: на паузе)" : "🎮 Приложение (сейчас: активно)",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendComputerFolderAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🔌 Выключить ПК", "folder_pc_shutdown_confirm"),
+                InlineKeyboardButton.WithCallbackData("🔄 Перезагрузить", "folder_pc_wake")
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "💻 Управление компьютером:",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendIntervalsFolderAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("60/15", "folder_interval_60_15"),
+                InlineKeyboardButton.WithCallbackData("45/15", "folder_interval_45_15"),
+                InlineKeyboardButton.WithCallbackData("30/10", "folder_interval_30_10")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("✍️ Свой вариант", "folder_interval_custom")
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "⚙️ Интервалы:",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendHardKillConfirmAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Да, убить процесс", "folder_app_kill_yes"),
+                InlineKeyboardButton.WithCallbackData("Отмена", "folder_app_kill_cancel")
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "⚠️ Внимание! Это полностью завершит процесс службы. Дистанционное включение будет невозможно. Приложение запустится снова только после перезагрузки компьютера или вручную админом. Вы уверены?",
                 replyMarkup: inline)
             .ConfigureAwait(false);
     }
@@ -303,12 +420,16 @@ public sealed class TelegramBotBackgroundService : BackgroundService
     {
         var inline = new InlineKeyboardMarkup(new[]
         {
-            InlineKeyboardButton.WithCallbackData("⚠️ ДА, ВЫКЛЮЧИТЬ КОМПЬЮТЕР", "pc_shutdown_confirm")
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Да, выключить", "folder_pc_shutdown_yes"),
+                InlineKeyboardButton.WithCallbackData("Отмена", "folder_pc_shutdown_cancel")
+            }
         });
 
         await _botClient.SendMessage(
                 chatId: chatId,
-                text: "Подтвердите выключение ПК.",
+                text: "Вы уверены, что хотите выключить компьютер?",
                 replyMarkup: inline)
             .ConfigureAwait(false);
     }
@@ -317,65 +438,75 @@ public sealed class TelegramBotBackgroundService : BackgroundService
     {
         var inline = new InlineKeyboardMarkup(new[]
         {
-            InlineKeyboardButton.WithCallbackData("⚠️ ДА, ПЕРЕЗАГРУЗИТЬ КОМПЬЮТЕР", "pc_restart_confirm")
-        });
-
-        await _botClient.SendMessage(
-                chatId: chatId,
-                text: "Подтвердите перезагрузку ПК.",
-                replyMarkup: inline)
-            .ConfigureAwait(false);
-    }
-
-    private async Task SendStatusInlineActionsAsync(long chatId)
-    {
-        var inline = new InlineKeyboardMarkup(new[]
-        {
             new[]
             {
-                InlineKeyboardButton.WithCallbackData("+5 мин", "status_add_5"),
-                InlineKeyboardButton.WithCallbackData("+10 мин", "status_add_10"),
-                InlineKeyboardButton.WithCallbackData("+15 мин", "status_add_15"),
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("+60 мин", "status_add_60")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Установить 60/15", "status_setrule_60_15")
+                InlineKeyboardButton.WithCallbackData("Да, перезагрузить", "folder_pc_restart_yes"),
+                InlineKeyboardButton.WithCallbackData("Отмена", "folder_pc_restart_cancel")
             }
         });
 
         await _botClient.SendMessage(
                 chatId: chatId,
-                text: "📊 Быстрые действия:",
+                text: "Вы уверены, что хотите перезагрузить компьютер?",
                 replyMarkup: inline)
             .ConfigureAwait(false);
     }
 
-    private async Task SendAddTimeInlineActionsAsync(long chatId)
+    private async Task UpdateStatusFolderAsync(CallbackQuery callbackQuery)
     {
-        var inline = new InlineKeyboardMarkup(new[]
+        if (callbackQuery.Message is null)
+        {
+            return;
+        }
+
+        var replyMarkup = new InlineKeyboardMarkup(new[]
         {
             new[]
             {
-                InlineKeyboardButton.WithCallbackData("+5 мин", "status_add_5"),
-                InlineKeyboardButton.WithCallbackData("+10 мин", "status_add_10"),
-                InlineKeyboardButton.WithCallbackData("+15 мин", "status_add_15")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("+30 мин", "status_add_30"),
-                InlineKeyboardButton.WithCallbackData("+60 мин", "status_add_60")
+                InlineKeyboardButton.WithCallbackData("🚫 Блок", "folder_status_block"),
+                InlineKeyboardButton.WithCallbackData("✅ Разблок", "folder_status_unblock")
             }
         });
 
-        await _botClient.SendMessage(
-                chatId: chatId,
-                text: "➕ Выберите, сколько добавить:",
-                replyMarkup: inline)
+        await _botClient.EditMessageText(
+                chatId: callbackQuery.Message.Chat.Id,
+                messageId: callbackQuery.Message.MessageId,
+                text: _orchestrator.GetStatusDetailsText(),
+                replyMarkup: replyMarkup)
             .ConfigureAwait(false);
+    }
+
+    private async Task UpdateApplicationFolderAsync(CallbackQuery callbackQuery)
+    {
+        if (callbackQuery.Message is null)
+        {
+            return;
+        }
+
+        var isPaused = _orchestrator.IsPaused();
+        var replyMarkup = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData(
+                    isPaused ? "▶️ Включить систему" : "⏸️ Поставить на паузу",
+                    isPaused ? "folder_app_resume" : "folder_app_pause"),
+                InlineKeyboardButton.WithCallbackData("🛑 Полный Килл", "folder_app_kill_confirm")
+            }
+        });
+
+        await _botClient.EditMessageText(
+                chatId: callbackQuery.Message.Chat.Id,
+                messageId: callbackQuery.Message.MessageId,
+                text: isPaused ? "🎮 Приложение (сейчас: на паузе)" : "🎮 Приложение (сейчас: активно)",
+                replyMarkup: replyMarkup)
+            .ConfigureAwait(false);
+    }
+
+    private async Task ConfirmPresetAddTimeAsync(string callbackQueryId, int minutes)
+    {
+        var confirmation = await _orchestrator.AddTimePresetAsync(minutes).ConfigureAwait(false);
+        await _botClient.AnswerCallbackQuery(callbackQueryId, confirmation).ConfigureAwait(false);
     }
 
     private bool IsAdmin(long chatId)

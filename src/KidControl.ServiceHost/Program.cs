@@ -32,11 +32,17 @@ builder.Services.AddSingleton(sp =>
 {
     var uiNotifier = sp.GetRequiredService<KidControl.Application.Interfaces.IUiNotifier>();
     var telegramNotifier = sp.GetRequiredService<KidControl.Application.Interfaces.ITelegramNotifier>();
+    var sessionStateRepository = sp.GetRequiredService<KidControl.Application.Interfaces.ISessionStateRepository>();
     var logger = sp.GetRequiredService<ILogger<SessionOrchestrator>>();
     var hostLifetime = sp.GetService<IHostApplicationLifetime>();
     var config = sp.GetRequiredService<IOptions<TelegramConfig>>().Value;
 
-    var orchestrator = new SessionOrchestrator(uiNotifier, telegramNotifier, logger, hostLifetime);
+    var orchestrator = new SessionOrchestrator(
+        uiNotifier,
+        telegramNotifier,
+        sessionStateRepository,
+        logger,
+        hostLifetime);
     if (TimeSpan.TryParse(config.NightModeStart, out var nightStart) &&
         TimeSpan.TryParse(config.NightModeEnd, out var nightEnd))
     {

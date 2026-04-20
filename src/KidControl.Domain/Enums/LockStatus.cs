@@ -5,5 +5,6 @@ public enum LockStatus
     Active = 0,
     Blocked = 1,
     ForceBlocked = 2,
-    NightBlock = 3
+    NightBlock = 3,
+    Paused = 4
 }
