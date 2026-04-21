@@ -30,6 +30,7 @@ public static class InfrastructureModule
 
         services.AddSingleton<ITelegramNotifier, TelegramNotifier>();
         services.AddSingleton<IUiNotifier, NamedPipeUiNotifier>();
+        services.AddSingleton<UiScreenshotRequester>();
         services.AddSingleton<ISessionStateRepository, JsonFileStateRepository>();
         services.AddSingleton<ProcessWatchdog>();
         services.AddSingleton<TaskSchedulerManager>();

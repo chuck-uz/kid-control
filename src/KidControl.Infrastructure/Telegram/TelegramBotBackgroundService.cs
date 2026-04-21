@@ -1,8 +1,11 @@
 using KidControl.Application.Services;
+using KidControl.Application.Interfaces;
 using KidControl.Infrastructure.Configuration;
+using KidControl.Infrastructure.Ipc;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.IO;
 using Serilog.Context;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -16,16 +19,24 @@ public sealed class TelegramBotBackgroundService : BackgroundService
     private readonly TelegramBotClient _botClient;
     private readonly SessionOrchestrator _orchestrator;
     private readonly TelegramConfig _config;
+    private readonly ITelegramNotifier _telegramNotifier;
+    private readonly UiScreenshotRequester _uiScreenshotRequester;
     private readonly ILogger<TelegramBotBackgroundService> _logger;
+    private DateTimeOffset _lastScreenshotAt = DateTimeOffset.MinValue;
+    private readonly object _screenshotSync = new();
 
     public TelegramBotBackgroundService(
         TelegramBotClient botClient,
         SessionOrchestrator orchestrator,
+        ITelegramNotifier telegramNotifier,
+        UiScreenshotRequester uiScreenshotRequester,
         IOptions<TelegramConfig> config,
         ILogger<TelegramBotBackgroundService> logger)
     {
         _botClient = botClient;
         _orchestrator = orchestrator;
+        _telegramNotifier = telegramNotifier;
+        _uiScreenshotRequester = uiScreenshotRequester;
         _logger = logger;
         _config = config.Value;
     }
@@ -164,6 +175,9 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                     await _orchestrator.HandleTelegramCommandAsync("/unblock", chatId).ConfigureAwait(false);
                     await UpdateStatusFolderAsync(callbackQuery).ConfigureAwait(false);
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_status_screenshot":
+                    await HandleScreenshotRequestAsync(chatId, callbackQuery.Id).ConfigureAwait(false);
                     return;
                 case "folder_time_add_15":
                     await ConfirmPresetAddTimeAsync(callbackQuery.Id, 15).ConfigureAwait(false);
@@ -312,6 +326,10 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             {
                 InlineKeyboardButton.WithCallbackData("🚫 Блок", "folder_status_block"),
                 InlineKeyboardButton.WithCallbackData("✅ Разблок", "folder_status_unblock")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("📸 Скриншот", "folder_status_screenshot")
             }
         });
 
@@ -511,6 +529,10 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             {
                 InlineKeyboardButton.WithCallbackData("🚫 Блок", "folder_status_block"),
                 InlineKeyboardButton.WithCallbackData("✅ Разблок", "folder_status_unblock")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("📸 Скриншот", "folder_status_screenshot")
             }
         });
 
@@ -578,6 +600,67 @@ public sealed class TelegramBotBackgroundService : BackgroundService
     {
         var confirmation = await _orchestrator.AddTimePresetAsync(minutes).ConfigureAwait(false);
         await _botClient.AnswerCallbackQuery(callbackQueryId, confirmation).ConfigureAwait(false);
+    }
+
+    private async Task HandleScreenshotRequestAsync(long chatId, string callbackQueryId)
+    {
+        if (!TryAcquireScreenshotSlot(out var waitSeconds))
+        {
+            await _botClient.AnswerCallbackQuery(callbackQueryId, $"Подождите {waitSeconds} сек.", true).ConfigureAwait(false);
+            return;
+        }
+
+        await _botClient.AnswerCallbackQuery(callbackQueryId, "Делаю скриншот...").ConfigureAwait(false);
+        var screenshotPath = await _uiScreenshotRequester.RequestScreenshotPathAsync(CancellationToken.None).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(screenshotPath) || !File.Exists(screenshotPath))
+        {
+            await _telegramNotifier.SendReplyAsync(chatId, "⚠️ Ошибка: Не удалось связаться с интерфейсом пользователя (возможно, экран заблокирован)").ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await _telegramNotifier.SendPhotoAsync(chatId, screenshotPath, "📸 Текущий экран").ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send screenshot to Telegram.");
+            await _telegramNotifier.SendReplyAsync(chatId, "⚠️ Ошибка отправки скриншота.").ConfigureAwait(false);
+        }
+        finally
+        {
+            TryDeleteScreenshotFile(screenshotPath);
+        }
+    }
+
+    private bool TryAcquireScreenshotSlot(out int waitSeconds)
+    {
+        lock (_screenshotSync)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var nextAllowedAt = _lastScreenshotAt.AddSeconds(5);
+            if (nextAllowedAt > now)
+            {
+                waitSeconds = (int)Math.Ceiling((nextAllowedAt - now).TotalSeconds);
+                return false;
+            }
+
+            _lastScreenshotAt = now;
+            waitSeconds = 0;
+            return true;
+        }
+    }
+
+    private void TryDeleteScreenshotFile(string screenshotPath)
+    {
+        try
+        {
+            File.Delete(screenshotPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to delete screenshot temp file {Path}.", screenshotPath);
+        }
     }
 
     private bool IsAdmin(long chatId)
