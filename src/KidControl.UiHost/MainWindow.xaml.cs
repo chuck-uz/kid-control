@@ -130,7 +130,7 @@ public partial class MainWindow : Window
             BlockOverlay.Visibility = Visibility.Visible;
             if (_viewModel.IsNightBlocked)
             {
-                BlockReasonText.Text = "Спокойной ночи, увидимся завтра!";
+                BlockReasonText.Text = "Спокойной ночи. Увидимся завтра!";
                 BlockedTimerText.Visibility = Visibility.Collapsed;
                 StopBlockedTimerAnimation();
             }

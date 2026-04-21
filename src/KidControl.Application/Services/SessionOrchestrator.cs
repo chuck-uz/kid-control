@@ -30,6 +30,10 @@ public sealed class SessionOrchestrator
     private DateTimeOffset _lastTickLogAt = DateTimeOffset.MinValue;
     private TimeSpan _nightModeStart = TimeSpan.FromHours(22);
     private TimeSpan _nightModeEnd = TimeSpan.FromHours(7);
+    private DateTimeOffset _nightModeBypassUntil = DateTimeOffset.MinValue;
+    private LockStatus _statusBeforeNightBlock = LockStatus.Active;
+    private TimeSpan _remainingBeforeNightBlock = TimeSpan.Zero;
+    private bool _hasNightBlockSnapshot;
     private DateTimeOffset _lastNightUsageAlert = DateTimeOffset.MinValue;
 
     public SessionOrchestrator(
@@ -61,6 +65,8 @@ public sealed class SessionOrchestrator
             _nightModeStart = start;
             _nightModeEnd = end;
         }
+
+        SaveStateSnapshot();
     }
 
     public async Task ProcessTickAsync()
@@ -75,32 +81,47 @@ public sealed class SessionOrchestrator
         lock (_sync)
         {
             var now = DateTimeOffset.UtcNow;
+            var nowLocal = DateTimeOffset.Now;
             previousStatus = _session.CurrentStatus;
-            isNightMode = IsNightMode(DateTimeOffset.Now.TimeOfDay);
+            isNightMode = IsNightMode(nowLocal.TimeOfDay);
 
-            if (_session.CurrentStatus == LockStatus.Paused)
+            if (isNightMode && !IsNightBypassActive(nowLocal))
             {
-                _lastTickAt = now;
-                newStatus = previousStatus;
-                state = ToDto(isNightMode);
-            }
-            else
-            {
-                var elapsed = now - _lastTickAt;
-                if (elapsed < TimeSpan.FromSeconds(1))
-                {
-                    elapsed = TimeSpan.FromSeconds(1);
-                }
-                else if (elapsed > TimeSpan.FromMinutes(2))
-                {
-                    // Prevent a giant single jump; regular ticks will continue right after.
-                    elapsed = TimeSpan.FromMinutes(2);
-                }
-
-                _session.Tick(elapsed);
+                EnterNightBlockIfNeeded();
                 _lastTickAt = now;
                 newStatus = _session.CurrentStatus;
                 state = ToDto(isNightMode);
+                currentPlayMinutes = _session.CurrentRule?.PlayMinutes ?? DefaultPlayMinutes;
+                currentRestMinutes = _session.CurrentRule?.RestMinutes ?? DefaultRestMinutes;
+            }
+            else
+            {
+                ExitNightBlockIfNeeded();
+
+                if (_session.CurrentStatus == LockStatus.Paused)
+                {
+                    _lastTickAt = now;
+                    newStatus = previousStatus;
+                    state = ToDto(isNightMode);
+                }
+                else
+                {
+                    var elapsed = now - _lastTickAt;
+                    if (elapsed < TimeSpan.FromSeconds(1))
+                    {
+                        elapsed = TimeSpan.FromSeconds(1);
+                    }
+                    else if (elapsed > TimeSpan.FromMinutes(2))
+                    {
+                        // Prevent a giant single jump; regular ticks will continue right after.
+                        elapsed = TimeSpan.FromMinutes(2);
+                    }
+
+                    _session.Tick(elapsed);
+                    _lastTickAt = now;
+                    newStatus = _session.CurrentStatus;
+                    state = ToDto(isNightMode);
+                }
             }
 
             currentPlayMinutes = _session.CurrentRule?.PlayMinutes ?? DefaultPlayMinutes;
@@ -309,6 +330,16 @@ public sealed class SessionOrchestrator
         {
             _nightModeStart = start;
             _nightModeEnd = end;
+            _nightModeBypassUntil = DateTimeOffset.MinValue;
+
+            if (IsNightMode(DateTimeOffset.Now.TimeOfDay))
+            {
+                EnterNightBlockIfNeeded();
+            }
+            else
+            {
+                ExitNightBlockIfNeeded();
+            }
         }
 
         _logger.LogInformation("Night mode window updated. Start={Start}, End={End}", start, end);
@@ -458,6 +489,12 @@ public sealed class SessionOrchestrator
         SessionStateDto state;
         lock (_sync)
         {
+            var nowLocal = DateTimeOffset.Now;
+            if (IsNightMode(nowLocal.TimeOfDay))
+            {
+                ActivateNightBypass(nowLocal);
+                ExitNightBlockIfNeeded();
+            }
             _session.AddTime(TimeSpan.FromMinutes(minutes));
             state = ToDto();
         }
@@ -566,6 +603,12 @@ public sealed class SessionOrchestrator
 
     private string HandleUnblock()
     {
+        var nowLocal = DateTimeOffset.Now;
+        if (IsNightMode(nowLocal.TimeOfDay))
+        {
+            ActivateNightBypass(nowLocal);
+        }
+        ExitNightBlockIfNeeded();
         _session.ForceUnblock();
         return "Компьютер разблокирован.";
     }
@@ -578,6 +621,12 @@ public sealed class SessionOrchestrator
             return "Формат: /addtime [минуты], где минуты > 0.";
         }
 
+        var nowLocal = DateTimeOffset.Now;
+        if (IsNightMode(nowLocal.TimeOfDay))
+        {
+            ActivateNightBypass(nowLocal);
+            ExitNightBlockIfNeeded();
+        }
         _session.AddTime(TimeSpan.FromMinutes(minutes));
         return $"Добавлено {minutes} минут.";
     }
@@ -636,8 +685,8 @@ public sealed class SessionOrchestrator
 
         var parts = input.Split('-', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2 ||
-            !TimeSpan.TryParse(parts[0], out var start) ||
-            !TimeSpan.TryParse(parts[1], out var end))
+            !TimeSpan.TryParseExact(parts[0], @"hh\:mm", null, out var start) ||
+            !TimeSpan.TryParseExact(parts[1], @"hh\:mm", null, out var end))
         {
             await _telegramNotifier.SendReplyAsync(chatId, "❌ Неверный формат. Введите интервал как 21:30-08:00.")
                 .ConfigureAwait(false);
@@ -731,6 +780,8 @@ public sealed class SessionOrchestrator
 
             var playMinutes = persisted.PlayMinutes > 0 ? persisted.PlayMinutes : DefaultPlayMinutes;
             var restMinutes = persisted.RestMinutes > 0 ? persisted.RestMinutes : DefaultRestMinutes;
+            _nightModeStart = persisted.NightModeStart == default ? TimeSpan.FromHours(22) : persisted.NightModeStart;
+            _nightModeEnd = persisted.NightModeEnd == default ? TimeSpan.FromHours(7) : persisted.NightModeEnd;
             _session.SetRule(new ScheduleRule(playMinutes, restMinutes));
             _session.RestoreState(persisted.CurrentStatus, persisted.TimeRemaining);
             if (delta > TimeSpan.Zero)
@@ -754,12 +805,16 @@ public sealed class SessionOrchestrator
             lock (_sync)
             {
                 var currentRule = _session.CurrentRule ?? new ScheduleRule(DefaultPlayMinutes, DefaultRestMinutes);
-                snapshot = new SessionPersistenceState(
-                    TimeRemaining: _session.TimeRemaining,
-                    CurrentStatus: _session.CurrentStatus,
-                    LastUpdateTimestamp: DateTimeOffset.Now,
-                    PlayMinutes: currentRule.PlayMinutes,
-                    RestMinutes: currentRule.RestMinutes);
+                snapshot = new SessionPersistenceState
+                {
+                    TimeRemaining = _session.TimeRemaining,
+                    CurrentStatus = _session.CurrentStatus,
+                    LastUpdateTimestamp = DateTimeOffset.Now,
+                    PlayMinutes = currentRule.PlayMinutes,
+                    RestMinutes = currentRule.RestMinutes,
+                    NightModeStart = _nightModeStart,
+                    NightModeEnd = _nightModeEnd
+                };
             }
 
             _sessionStateRepository.Save(snapshot);
@@ -789,5 +844,63 @@ public sealed class SessionOrchestrator
         {
             _logger.LogWarning(ex, "Failed to trigger UI launch after resume.");
         }
+    }
+
+    private void EnterNightBlockIfNeeded()
+    {
+        if (_session.CurrentStatus == LockStatus.NightBlock)
+        {
+            return;
+        }
+
+        _statusBeforeNightBlock = _session.CurrentStatus;
+        _remainingBeforeNightBlock = _session.TimeRemaining;
+        _hasNightBlockSnapshot = true;
+        _session.SetNightBlock();
+    }
+
+    private void ExitNightBlockIfNeeded()
+    {
+        if (_session.CurrentStatus != LockStatus.NightBlock)
+        {
+            return;
+        }
+
+        if (_hasNightBlockSnapshot)
+        {
+            _session.RestoreState(_statusBeforeNightBlock, _remainingBeforeNightBlock);
+            _hasNightBlockSnapshot = false;
+            return;
+        }
+
+        _session.ForceUnblock();
+    }
+
+    private bool IsNightBypassActive(DateTimeOffset nowLocal)
+    {
+        return nowLocal < _nightModeBypassUntil;
+    }
+
+    private void ActivateNightBypass(DateTimeOffset nowLocal)
+    {
+        _nightModeBypassUntil = GetCurrentNightWindowEnd(nowLocal);
+    }
+
+    private DateTimeOffset GetCurrentNightWindowEnd(DateTimeOffset nowLocal)
+    {
+        if (_nightModeStart == _nightModeEnd)
+        {
+            return new DateTimeOffset(nowLocal.Date.AddDays(1).Add(_nightModeEnd), nowLocal.Offset);
+        }
+
+        if (_nightModeStart < _nightModeEnd)
+        {
+            return new DateTimeOffset(nowLocal.Date.Add(_nightModeEnd), nowLocal.Offset);
+        }
+
+        var endDate = nowLocal.TimeOfDay < _nightModeEnd
+            ? nowLocal.Date
+            : nowLocal.Date.AddDays(1);
+        return new DateTimeOffset(endDate.Add(_nightModeEnd), nowLocal.Offset);
     }
 }

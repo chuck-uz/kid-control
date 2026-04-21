@@ -639,7 +639,9 @@ public sealed class InstallerForm : Form
               "currentStatus": 0,
               "lastUpdateTimestamp": "__NOW__",
               "playMinutes": 40,
-              "restMinutes": 20
+              "restMinutes": 20,
+              "nightModeStart": "22:00:00",
+              "nightModeEnd": "07:00:00"
             }
             """.Replace("__NOW__", DateTimeOffset.Now.ToString("O", System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
