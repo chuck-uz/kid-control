@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows;
+using System.Windows.Controls;
 using KidControl.UiHost.ViewModels;
 
 namespace KidControl.UiHost;
@@ -12,8 +13,8 @@ public partial class MainWindow : Window
     private const int GwlExStyle = -20;
     private const int WsExLayered = 0x80000;
     private const int WsExTransparent = 0x20;
-    private const double WidgetWidth = 200;
-    private const double WidgetHeight = 80;
+    private const double WidgetWidth = 260;
+    private const double WidgetHeight = 140;
     private Storyboard? _blockedTimerStoryboard;
 
     private readonly MainViewModel _viewModel;
@@ -29,6 +30,8 @@ public partial class MainWindow : Window
         Loaded += (_, _) =>
         {
             MoveWidgetToCorner();
+            StartBackgroundParticles();
+            UpdateWidgetProgressRing();
             ApplyVisualMode(_viewModel.IsBlocked);
         };
 
@@ -38,6 +41,10 @@ public partial class MainWindow : Window
                 args.PropertyName == nameof(MainViewModel.IsNightBlocked))
             {
                 Dispatcher.Invoke(async () => await TransitionToStateAsync(_viewModel.IsBlocked));
+            }
+            else if (args.PropertyName == nameof(MainViewModel.ProgressPercent))
+            {
+                Dispatcher.Invoke(UpdateWidgetProgressRing);
             }
         };
     }
@@ -51,6 +58,35 @@ public partial class MainWindow : Window
     {
         Left = SystemParameters.WorkArea.Right - Width - 8;
         Top = SystemParameters.WorkArea.Top + 8;
+    }
+
+    private void UpdateWidgetProgressRing()
+    {
+        const double radius = 45;
+        var center = new Point(49, 49);
+        var progress = Math.Clamp(_viewModel.ProgressPercent / 100d, 0, 1);
+        if (progress <= 0.001)
+        {
+            WidgetProgressPath.Data = null;
+            return;
+        }
+
+        var endAngle = (Math.PI * 2 * progress) - (Math.PI / 2);
+        var end = new Point(
+            center.X + radius * Math.Cos(endAngle),
+            center.Y + radius * Math.Sin(endAngle));
+        var start = new Point(center.X, center.Y - radius);
+        var isLargeArc = progress > 0.5;
+
+        var figure = new PathFigure { StartPoint = start, IsClosed = false, IsFilled = false };
+        figure.Segments.Add(new ArcSegment
+        {
+            Point = end,
+            Size = new Size(radius, radius),
+            SweepDirection = SweepDirection.Clockwise,
+            IsLargeArc = isLargeArc
+        });
+        WidgetProgressPath.Data = new PathGeometry(new[] { figure });
     }
 
     private async Task TransitionToStateAsync(bool isBlocked)
@@ -224,5 +260,41 @@ public partial class MainWindow : Window
             scale.ScaleX = 1.0;
             scale.ScaleY = 1.0;
         }
+    }
+
+    private void StartBackgroundParticles()
+    {
+        AnimateStar(Star1, 0, 8);
+        AnimateStar(Star2, 200, 10);
+        AnimateStar(Star3, 450, 9);
+        AnimateStar(Star4, 650, 12);
+        AnimateStar(Star5, 900, 11);
+    }
+
+    private static void AnimateStar(UIElement star, int delayMs, int range)
+    {
+        var yAnimation = new DoubleAnimation
+        {
+            From = 0,
+            To = range,
+            Duration = TimeSpan.FromSeconds(5.5),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            BeginTime = TimeSpan.FromMilliseconds(delayMs),
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+        };
+
+        var opacityAnimation = new DoubleAnimation
+        {
+            From = 0.3,
+            To = 0.95,
+            Duration = TimeSpan.FromSeconds(3.2),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            BeginTime = TimeSpan.FromMilliseconds(delayMs)
+        };
+
+        star.BeginAnimation(Canvas.TopProperty, yAnimation, HandoffBehavior.SnapshotAndReplace);
+        star.BeginAnimation(UIElement.OpacityProperty, opacityAnimation, HandoffBehavior.SnapshotAndReplace);
     }
 }

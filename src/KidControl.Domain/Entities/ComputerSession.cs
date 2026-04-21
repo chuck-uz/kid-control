@@ -24,19 +24,49 @@ public sealed class ComputerSession
             return;
         }
 
-        TimeRemaining -= elapsed;
-
-        if (CurrentStatus == LockStatus.Active && TimeRemaining <= TimeSpan.Zero)
+        var remainingElapsed = elapsed;
+        while (remainingElapsed > TimeSpan.Zero)
         {
-            CurrentStatus = LockStatus.Blocked;
-            TimeRemaining = GetRestDuration();
+            var phaseDuration = CurrentStatus == LockStatus.Active
+                ? GetPlayDuration()
+                : CurrentStatus == LockStatus.Blocked
+                    ? GetRestDuration()
+                    : TimeSpan.Zero;
+
+            // Safety guard: if rule is invalid/missing, do not loop forever.
+            if (phaseDuration <= TimeSpan.Zero)
+            {
+                TimeRemaining = TimeSpan.Zero;
+                return;
+            }
+
+            if (TimeRemaining <= TimeSpan.Zero)
+            {
+                TimeRemaining = phaseDuration;
+            }
+
+            if (remainingElapsed < TimeRemaining)
+            {
+                TimeRemaining -= remainingElapsed;
+                return;
+            }
+
+            remainingElapsed -= TimeRemaining;
+            if (CurrentStatus == LockStatus.Active)
+            {
+                CurrentStatus = LockStatus.Blocked;
+                TimeRemaining = GetRestDuration();
+                continue;
+            }
+
+            if (CurrentStatus == LockStatus.Blocked)
+            {
+                CurrentStatus = LockStatus.Active;
+                TimeRemaining = GetPlayDuration();
+                continue;
+            }
+
             return;
-        }
-
-        if (CurrentStatus == LockStatus.Blocked && TimeRemaining <= TimeSpan.Zero)
-        {
-            CurrentStatus = LockStatus.Active;
-            TimeRemaining = GetPlayDuration();
         }
     }
 

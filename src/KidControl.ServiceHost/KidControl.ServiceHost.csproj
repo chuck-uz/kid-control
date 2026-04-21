@@ -3,6 +3,7 @@
     <AssemblyName>KidControl.ServiceHost</AssemblyName>
     <RootNamespace>KidControl.ServiceHost</RootNamespace>
     <SupportedOSPlatformVersion>10.0</SupportedOSPlatformVersion>
+    <ApplicationIcon>Resources\service_icon.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>

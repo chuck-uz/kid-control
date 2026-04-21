@@ -4,6 +4,7 @@
     <RootNamespace>KidControl.UiHost</RootNamespace>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <ApplicationIcon>Resources\ui_icon.ico</ApplicationIcon>
     <UseWPF>true</UseWPF>
     <PublishSingleFile>true</PublishSingleFile>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -12,6 +13,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\KidControl.Contracts\KidControl.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Required for WPF pack URI (Window.Icon) in single-file publish -->
+    <Resource Include="Resources\ui_icon.ico" />
   </ItemGroup>
 
   <ItemGroup>
