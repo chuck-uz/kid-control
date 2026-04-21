@@ -256,6 +256,26 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                         .ConfigureAwait(false);
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
                     return;
+                case "folder_night_mode_menu":
+                    await SendNightModeFolderAsync(chatId).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
+                case "folder_night_mode_21_07":
+                    await ApplyNightModePresetAsync(chatId, TimeSpan.FromHours(21), TimeSpan.FromHours(7)).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Ночной режим 21:00-07:00").ConfigureAwait(false);
+                    return;
+                case "folder_night_mode_22_08":
+                    await ApplyNightModePresetAsync(chatId, TimeSpan.FromHours(22), TimeSpan.FromHours(8)).ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Ночной режим 22:00-08:00").ConfigureAwait(false);
+                    return;
+                case "folder_night_mode_custom":
+                    _orchestrator.BeginNightModeInput(chatId);
+                    await _botClient.SendMessage(
+                            chatId: chatId,
+                            text: "Введите ночной интервал в формате ЧЧ:ММ-ЧЧ:ММ (например, 22:30-07:15).")
+                        .ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    return;
                 default:
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Неизвестное действие.", true)
                         .ConfigureAwait(false);
@@ -388,12 +408,38 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             new[]
             {
                 InlineKeyboardButton.WithCallbackData("✍️ Свой вариант", "folder_interval_custom")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🌙 Ночной режим", "folder_night_mode_menu")
             }
         });
 
         await _botClient.SendMessage(
                 chatId: chatId,
                 text: "⚙️ Интервалы:",
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendNightModeFolderAsync(long chatId)
+    {
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("21:00 - 07:00", "folder_night_mode_21_07"),
+                InlineKeyboardButton.WithCallbackData("22:00 - 08:00", "folder_night_mode_22_08")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("✍️ Свой вариант", "folder_night_mode_custom")
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "🌙 Ночной режим:",
                 replyMarkup: inline)
             .ConfigureAwait(false);
     }
@@ -543,6 +589,15 @@ public sealed class TelegramBotBackgroundService : BackgroundService
     {
         var confirmation = await _orchestrator
             .UpdateRules(TimeSpan.FromMinutes(workMinutes), TimeSpan.FromMinutes(restMinutes))
+            .ConfigureAwait(false);
+
+        await _botClient.SendMessage(chatId: chatId, text: confirmation).ConfigureAwait(false);
+    }
+
+    private async Task ApplyNightModePresetAsync(long chatId, TimeSpan start, TimeSpan end)
+    {
+        var confirmation = await _orchestrator
+            .UpdateNightModeWindow(start, end)
             .ConfigureAwait(false);
 
         await _botClient.SendMessage(chatId: chatId, text: confirmation).ConfigureAwait(false);

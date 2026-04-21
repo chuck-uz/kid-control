@@ -7,7 +7,6 @@ using KidControl.ServiceHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Serilog;
 using System.Runtime.Versioning;
 
@@ -35,7 +34,6 @@ builder.Services.AddSingleton(sp =>
     var sessionStateRepository = sp.GetRequiredService<KidControl.Application.Interfaces.ISessionStateRepository>();
     var logger = sp.GetRequiredService<ILogger<SessionOrchestrator>>();
     var hostLifetime = sp.GetService<IHostApplicationLifetime>();
-    var config = sp.GetRequiredService<IOptions<TelegramConfig>>().Value;
 
     var orchestrator = new SessionOrchestrator(
         uiNotifier,
@@ -44,11 +42,6 @@ builder.Services.AddSingleton(sp =>
         logger,
         hostLifetime);
     DebugFlightRecorder.Log("Orchestrator created.");
-    if (TimeSpan.TryParse(config.NightModeStart, out var nightStart) &&
-        TimeSpan.TryParse(config.NightModeEnd, out var nightEnd))
-    {
-        orchestrator.SetNightModeWindow(nightStart, nightEnd);
-    }
 
     return orchestrator;
 });
