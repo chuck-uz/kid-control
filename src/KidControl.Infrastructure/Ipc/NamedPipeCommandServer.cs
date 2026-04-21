@@ -26,12 +26,7 @@ public sealed class NamedPipeCommandServer(
         {
             try
             {
-                await using var server = new NamedPipeServerStream(
-                    PipeName,
-                    PipeDirection.InOut,
-                    1,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                await using var server = NamedPipeServerFactory.CreateDuplex(PipeName, PipeOptions.Asynchronous);
 
                 await server.WaitForConnectionAsync(stoppingToken).ConfigureAwait(false);
                 using var reader = new StreamReader(server, Encoding.UTF8);

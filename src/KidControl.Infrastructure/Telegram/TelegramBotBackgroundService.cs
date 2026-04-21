@@ -468,7 +468,7 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             }
         });
 
-        await _botClient.EditMessageText(
+        await TryEditMessageTextSafeAsync(
                 chatId: callbackQuery.Message.Chat.Id,
                 messageId: callbackQuery.Message.MessageId,
                 text: _orchestrator.GetStatusDetailsText(),
@@ -495,12 +495,37 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             }
         });
 
-        await _botClient.EditMessageText(
+        await TryEditMessageTextSafeAsync(
                 chatId: callbackQuery.Message.Chat.Id,
                 messageId: callbackQuery.Message.MessageId,
                 text: isPaused ? "🎮 Приложение (сейчас: на паузе)" : "🎮 Приложение (сейчас: активно)",
                 replyMarkup: replyMarkup)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Telegram returns 400 "message is not modified" when text/markup did not change.
+    /// This is a benign race and must not break the polling loop.
+    /// </summary>
+    private async Task TryEditMessageTextSafeAsync(
+        long chatId,
+        int messageId,
+        string text,
+        InlineKeyboardMarkup replyMarkup)
+    {
+        try
+        {
+            await _botClient.EditMessageText(
+                    chatId: chatId,
+                    messageId: messageId,
+                    text: text,
+                    replyMarkup: replyMarkup)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogDebug("Telegram edit skipped: message was not modified.");
+        }
     }
 
     private async Task ConfirmPresetAddTimeAsync(string callbackQueryId, int minutes)

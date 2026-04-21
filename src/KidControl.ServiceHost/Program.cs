@@ -43,6 +43,7 @@ builder.Services.AddSingleton(sp =>
         sessionStateRepository,
         logger,
         hostLifetime);
+    DebugFlightRecorder.Log("Orchestrator created.");
     if (TimeSpan.TryParse(config.NightModeStart, out var nightStart) &&
         TimeSpan.TryParse(config.NightModeEnd, out var nightEnd))
     {
@@ -52,6 +53,7 @@ builder.Services.AddSingleton(sp =>
     return orchestrator;
 });
 builder.Services.AddKidControlInfrastructure(builder.Configuration);
+builder.Services.AddSingleton<IndependentTimer>();
 
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddHostedService<TelegramBotBackgroundService>();

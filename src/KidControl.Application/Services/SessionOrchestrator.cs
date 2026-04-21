@@ -13,6 +13,8 @@ namespace KidControl.Application.Services;
 
 public sealed class SessionOrchestrator
 {
+    private const int DefaultPlayMinutes = 40;
+    private const int DefaultRestMinutes = 20;
     private readonly object _sync = new();
     private readonly HashSet<long> _awaitingCustomRuleInput = [];
     private readonly HashSet<long> _awaitingNightModeInput = [];
@@ -24,6 +26,8 @@ public sealed class SessionOrchestrator
     private readonly ILogger<SessionOrchestrator> _logger;
     private string? _pendingOtp;
     private DateTimeOffset _otpExpiresAt;
+    private DateTimeOffset _lastTickAt = DateTimeOffset.UtcNow;
+    private DateTimeOffset _lastTickLogAt = DateTimeOffset.MinValue;
     private TimeSpan _nightModeStart = TimeSpan.FromHours(22);
     private TimeSpan _nightModeEnd = TimeSpan.FromHours(7);
     private DateTimeOffset _lastNightUsageAlert = DateTimeOffset.MinValue;
@@ -42,10 +46,12 @@ public sealed class SessionOrchestrator
         _hostApplicationLifetime = hostApplicationLifetime;
 
         _session = new ComputerSession();
-        _session.SetRule(new ScheduleRule(playMinutes: 60, restMinutes: 15));
-        _session.AddTime(TimeSpan.FromMinutes(60));
+        _session.SetRule(new ScheduleRule(playMinutes: DefaultPlayMinutes, restMinutes: DefaultRestMinutes));
+        _session.AddTime(TimeSpan.FromMinutes(DefaultPlayMinutes));
         RestorePersistedState();
         SaveStateSnapshot();
+        // Ensure the very first worker cycle immediately decrements when status is Active.
+        _lastTickAt = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(1);
     }
 
     public void SetNightModeWindow(TimeSpan start, TimeSpan end)
@@ -63,31 +69,74 @@ public sealed class SessionOrchestrator
         LockStatus previousStatus;
         LockStatus newStatus;
         var isNightMode = false;
+        var currentPlayMinutes = DefaultPlayMinutes;
+        var currentRestMinutes = DefaultRestMinutes;
 
         lock (_sync)
         {
+            var now = DateTimeOffset.UtcNow;
             previousStatus = _session.CurrentStatus;
+            isNightMode = IsNightMode(DateTimeOffset.Now.TimeOfDay);
+
             if (_session.CurrentStatus == LockStatus.Paused)
             {
-                state = ToDto(isNightModeOverride: IsNightMode(DateTimeOffset.Now.TimeOfDay));
-                return;
+                _lastTickAt = now;
+                newStatus = previousStatus;
+                state = ToDto(isNightMode);
+            }
+            else
+            {
+                var elapsed = now - _lastTickAt;
+                if (elapsed < TimeSpan.FromSeconds(1))
+                {
+                    elapsed = TimeSpan.FromSeconds(1);
+                }
+                else if (elapsed > TimeSpan.FromMinutes(2))
+                {
+                    // Prevent a giant single jump; regular ticks will continue right after.
+                    elapsed = TimeSpan.FromMinutes(2);
+                }
+
+                _session.Tick(elapsed);
+                _lastTickAt = now;
+                newStatus = _session.CurrentStatus;
+                state = ToDto(isNightMode);
             }
 
-            isNightMode = IsNightMode(DateTimeOffset.Now.TimeOfDay);
-            _session.Tick(TimeSpan.FromSeconds(1));
-
-            newStatus = _session.CurrentStatus;
-            state = ToDto(isNightMode);
+            currentPlayMinutes = _session.CurrentRule?.PlayMinutes ?? DefaultPlayMinutes;
+            currentRestMinutes = _session.CurrentRule?.RestMinutes ?? DefaultRestMinutes;
         }
 
         await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
         SaveStateSnapshot();
 
+        var logNow = DateTimeOffset.UtcNow;
+        if (logNow - _lastTickLogAt >= TimeSpan.FromSeconds(5))
+        {
+            _lastTickLogAt = logNow;
+            _logger.LogInformation(
+                "Timer Tick: Status={Status}, Remaining={Remaining}, Rule={Play}/{Rest}",
+                state.Status,
+                state.TimeRemaining,
+                currentPlayMinutes,
+                currentRestMinutes);
+        }
+
         if (previousStatus == LockStatus.Active && newStatus == LockStatus.Blocked)
         {
-            await _telegramNotifier
-                .BroadcastAsync("⚡ Время игры вышло. Компьютер перешел в режим блокировки.")
-                .ConfigureAwait(false);
+            try
+            {
+                var notifyTask = _telegramNotifier.BroadcastAsync("⚡ Время игры вышло. Компьютер перешел в режим блокировки.");
+                var completed = await Task.WhenAny(notifyTask, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+                if (completed == notifyTask)
+                {
+                    await notifyTask.ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send block transition notification to Telegram.");
+            }
         }
 
     }
@@ -185,7 +234,7 @@ public sealed class SessionOrchestrator
         SessionStateDto state;
         lock (_sync)
         {
-            var rule = _session.CurrentRule ?? new ScheduleRule(playMinutes: 60, restMinutes: 15);
+            var rule = _session.CurrentRule ?? new ScheduleRule(playMinutes: DefaultPlayMinutes, restMinutes: DefaultRestMinutes);
             _session.SetRuleAndResetPhase(rule);
             state = ToDto();
         }
@@ -217,6 +266,12 @@ public sealed class SessionOrchestrator
         {
             return ToDto(IsNightMode(DateTimeOffset.Now.TimeOfDay));
         }
+    }
+
+    /// <summary>Pushes current session state to UiHost (e.g. right after the watchdog starts the UI process).</summary>
+    public Task NotifyCurrentStateToUiAsync()
+    {
+        return _uiNotifier.NotifyStateChangedAsync(GetCurrentState());
     }
 
     public bool IsNightModeActiveNow()
@@ -350,6 +405,7 @@ public sealed class SessionOrchestrator
             {
                 _session.ForceUnblock();
             }
+            _lastTickAt = DateTimeOffset.UtcNow;
         }
 
         TryLaunchUiHostAfterResume();
@@ -673,11 +729,16 @@ public sealed class SessionOrchestrator
                 delta = TimeSpan.Zero;
             }
 
+            var playMinutes = persisted.PlayMinutes > 0 ? persisted.PlayMinutes : DefaultPlayMinutes;
+            var restMinutes = persisted.RestMinutes > 0 ? persisted.RestMinutes : DefaultRestMinutes;
+            _session.SetRule(new ScheduleRule(playMinutes, restMinutes));
             _session.RestoreState(persisted.CurrentStatus, persisted.TimeRemaining);
-            if (delta >= TimeSpan.FromMinutes(1))
+            if (delta > TimeSpan.Zero)
             {
                 _session.Tick(delta);
             }
+
+            _lastTickAt = DateTimeOffset.UtcNow;
         }
         catch (Exception ex)
         {
@@ -692,10 +753,13 @@ public sealed class SessionOrchestrator
             SessionPersistenceState snapshot;
             lock (_sync)
             {
+                var currentRule = _session.CurrentRule ?? new ScheduleRule(DefaultPlayMinutes, DefaultRestMinutes);
                 snapshot = new SessionPersistenceState(
                     TimeRemaining: _session.TimeRemaining,
                     CurrentStatus: _session.CurrentStatus,
-                    LastUpdateTimestamp: DateTimeOffset.Now);
+                    LastUpdateTimestamp: DateTimeOffset.Now,
+                    PlayMinutes: currentRule.PlayMinutes,
+                    RestMinutes: currentRule.RestMinutes);
             }
 
             _sessionStateRepository.Save(snapshot);

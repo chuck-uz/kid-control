@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using KidControl.Application.Interfaces;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace KidControl.Infrastructure.Ipc;
 
+[SupportedOSPlatform("windows10.0")]
 public sealed class NamedPipeUiNotifier(ILogger<NamedPipeUiNotifier> logger) : IUiNotifier
 {
     private const string PipeName = "KidControlPipe";
@@ -18,14 +20,10 @@ public sealed class NamedPipeUiNotifier(ILogger<NamedPipeUiNotifier> logger) : I
         await _singleWriter.WaitAsync().ConfigureAwait(false);
         try
         {
-            await using var server = new NamedPipeServerStream(
-                PipeName,
-                PipeDirection.Out,
-                1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous);
+            await using var server = NamedPipeServerFactory.CreateOutbound(PipeName, PipeOptions.Asynchronous);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+            // Timer progression must not be blocked for seconds waiting on UI connection.
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
             await server.WaitForConnectionAsync(cts.Token).ConfigureAwait(false);
 
             var payload = JsonSerializer.Serialize(state, JsonOptions) + Environment.NewLine;
