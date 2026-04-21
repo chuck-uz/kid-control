@@ -40,10 +40,12 @@ public partial class App : Application
         services.AddSingleton<NamedPipeClient>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
+        services.AddSingleton<UiCommandPipeServer>();
 
         _serviceProvider = services.BuildServiceProvider();
 
         _serviceProvider.GetRequiredService<NamedPipeClient>().Start();
+        _serviceProvider.GetRequiredService<UiCommandPipeServer>().Start();
 
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -76,6 +78,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _serviceProvider?.GetService<NamedPipeClient>()?.Stop();
+        _serviceProvider?.GetService<UiCommandPipeServer>()?.Stop();
         _serviceProvider?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);

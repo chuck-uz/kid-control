@@ -56,7 +56,6 @@ public sealed class InstallerForm : Form
 
     private readonly AccentButton _installButton = new() { Text = "Установить", Left = 28, Top = 120, Width = 190 };
     private readonly AccentButton _uninstallButton = new() { Text = "Удалить полностью", Left = 232, Top = 120, Width = 190, AccentColor = Color.FromArgb(176, 42, 55) };
-    private readonly AccentButton _launchUiButton = new() { Text = "Запустить виджет (UI) сейчас", Left = 434, Top = 120, Width = 200 };
     private readonly TextBox _logBox = new() { Left = 28, Top = 180, Width = 590, Height = 270, Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Color.WhiteSmoke, Font = new Font("Consolas", 10f) };
 
     public InstallerForm()
@@ -168,11 +167,9 @@ public sealed class InstallerForm : Form
         AddStepHeader(panel, "Установка и удаление", "Запустите установку или полное удаление. Логи службы: папка ProgramData\\KidControl\\logs");
         panel.Controls.Add(_installButton);
         panel.Controls.Add(_uninstallButton);
-        panel.Controls.Add(_launchUiButton);
         panel.Controls.Add(_logBox);
         _installButton.Click += async (_, _) => await InstallAsync();
         _uninstallButton.Click += async (_, _) => await UninstallAsync();
-        _launchUiButton.Click += (_, _) => TryLaunchUiInUserSession();
         _steps[3] = panel;
     }
 

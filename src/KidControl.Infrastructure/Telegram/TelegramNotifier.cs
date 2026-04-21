@@ -2,7 +2,9 @@ using KidControl.Application.Interfaces;
 using KidControl.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.IO;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 
 namespace KidControl.Infrastructure.Telegram;
 
@@ -57,5 +59,21 @@ public sealed class TelegramNotifier : ITelegramNotifier
                     text: message)
                 .ConfigureAwait(false);
         }
+    }
+
+    public async Task SendPhotoAsync(long chatId, string filePath, string? caption = null)
+    {
+        if (string.IsNullOrWhiteSpace(_config.BotToken))
+        {
+            _logger.LogWarning("Telegram photo skipped: BotToken is not configured.");
+            return;
+        }
+
+        await using var stream = File.OpenRead(filePath);
+        await _botClient.SendPhoto(
+                chatId: chatId,
+                photo: InputFile.FromStream(stream, Path.GetFileName(filePath)),
+                caption: caption)
+            .ConfigureAwait(false);
     }
 }

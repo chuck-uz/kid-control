@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -13,6 +15,10 @@ public partial class MainWindow : Window
     private const int GwlExStyle = -20;
     private const int WsExLayered = 0x80000;
     private const int WsExTransparent = 0x20;
+    private const int SmXVirtualScreen = 76;
+    private const int SmYVirtualScreen = 77;
+    private const int SmCxVirtualScreen = 78;
+    private const int SmCyVirtualScreen = 79;
     private const double WidgetWidth = 260;
     private const double WidgetHeight = 140;
     private Storyboard? _blockedTimerStoryboard;
@@ -297,4 +303,40 @@ public partial class MainWindow : Window
         star.BeginAnimation(Canvas.TopProperty, yAnimation, HandoffBehavior.SnapshotAndReplace);
         star.BeginAnimation(UIElement.OpacityProperty, opacityAnimation, HandoffBehavior.SnapshotAndReplace);
     }
+
+    public Task<string> CaptureScreenshotAsync()
+    {
+        return Dispatcher.InvokeAsync(CaptureScreenshotOnUiThread).Task;
+    }
+
+    private static string CaptureScreenshotOnUiThread()
+    {
+        var left = GetSystemMetrics(SmXVirtualScreen);
+        var top = GetSystemMetrics(SmYVirtualScreen);
+        var width = Math.Max(1, GetSystemMetrics(SmCxVirtualScreen));
+        var height = Math.Max(1, GetSystemMetrics(SmCyVirtualScreen));
+
+        using var bitmap = new System.Drawing.Bitmap(width, height);
+        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+        {
+            graphics.CopyFromScreen(left, top, 0, 0, new System.Drawing.Size(width, height));
+        }
+
+        var path = Path.Combine(Path.GetTempPath(), $"kidcontrol-shot-{Guid.NewGuid():N}.jpg");
+        var jpegCodec = System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders()
+            .FirstOrDefault(codec => string.Equals(codec.MimeType, "image/jpeg", StringComparison.OrdinalIgnoreCase));
+        if (jpegCodec is null)
+        {
+            bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
+            return path;
+        }
+
+        using var encoderParams = new System.Drawing.Imaging.EncoderParameters(1);
+        encoderParams.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 65L);
+        bitmap.Save(path, jpegCodec, encoderParams);
+        return path;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
 }

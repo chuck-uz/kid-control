@@ -4,4 +4,5 @@ public interface ITelegramNotifier
 {
     Task SendReplyAsync(long chatId, string message);
     Task BroadcastAsync(string message);
+    Task SendPhotoAsync(long chatId, string filePath, string? caption = null);
 }
