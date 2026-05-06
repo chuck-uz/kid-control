@@ -1778,6 +1778,7 @@ public sealed class InstallerForm : Form
     /// </summary>
     private void PerformBinaryUpdate(string tempPath, Action<string> log)
     {
+        TryEnableSeDebugPrivilege();
         Directory.CreateDirectory(ProgramFilesPath);
 
         #region agent log
@@ -1847,7 +1848,8 @@ public sealed class InstallerForm : Form
     /// without showing any UI. Preserves existing appsettings.json and session_state.json.
     /// Must be called from the UI thread (STA) but no Form will be shown.
     /// </summary>
-    public void RunSilentUpdate()
+    /// <param name="releaseTag">Optional tag from the updater (e.g. v1.0.3). When null, uses GitHub latest.</param>
+    public void RunSilentUpdate(string? releaseTag = null)
     {
         var logPath = Path.Combine(ProgramDataPath, "silent_install.log");
         void SilentLog(string msg)
@@ -1856,7 +1858,7 @@ public sealed class InstallerForm : Form
             try { File.AppendAllText(logPath, line + Environment.NewLine); } catch { }
         }
 
-        SilentLog("Silent update started.");
+        SilentLog($"Silent update started. explicitTag={releaseTag ?? "(none)"}");
 
         try
         {
@@ -1864,10 +1866,16 @@ public sealed class InstallerForm : Form
             Directory.CreateDirectory(tempPath);
             SilentLog($"Temp dir: {tempPath}");
 
-            // Determine latest release tag and download payloads.
-            var tag = GetLatestGitHubTagAsync().GetAwaiter().GetResult()
-                      ?? throw new InvalidOperationException("Could not determine latest GitHub release tag.");
-            SilentLog($"Latest version: {StripTagPrefix(tag)}");
+            // Prefer tag passed by ServiceHost so payloads match the installer we just downloaded.
+            var tag = string.IsNullOrWhiteSpace(releaseTag)
+                ? GetLatestGitHubTagAsync().GetAwaiter().GetResult()
+                : releaseTag.Trim();
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+                throw new InvalidOperationException("Could not determine GitHub release tag for silent update.");
+            }
+
+            SilentLog($"Payload tag: {tag} (display {StripTagPrefix(tag)})");
 
             // DownloadPayloadAsync internally calls Log() which writes to the in-memory
             // _logBox — harmless in silent mode since no UI message pump is running.
