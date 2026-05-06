@@ -232,7 +232,9 @@ public sealed class UpdateService : IUpdateService
             var startInfo = new ProcessStartInfo
             {
                 FileName = installerPath,
-                Arguments = kind == "rollback" ? "/silent /rollback" : "/silent /update",
+                Arguments = kind == "rollback"
+                    ? $"/silent /rollback /tag {tag}"
+                    : $"/silent /update /tag {tag}",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = stageDir,
