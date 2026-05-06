@@ -118,8 +118,8 @@ Invoke-DotnetPublish "$root/src/KidControl.UiHost/KidControl.UiHost.csproj" "$ui
 # Build installer (no embedded payloads - payloads are published as separate release assets)
 Invoke-DotnetPublish "$root/src/KidControl.Installer/KidControl.Installer.csproj" "$installerPublishDir"
 
-# Place all three release assets next to the installer in the run folder.
-# These are what gets attached to a GitHub Release:
+# Keep payload executables available for GitHub Release upload while the
+# user-facing latest folder contains only the installer.
 #   KidControl.Installer.exe
 #   KidControl.ServiceHost.exe
 #   KidControl.UiHost.exe
@@ -137,15 +137,11 @@ try {
     }
     New-Item -Path $installerStableDir -ItemType Directory -Force | Out-Null
     Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe")    (Join-Path $installerStableDir "KidControl.Installer.exe")    -Force
-    Copy-Item (Join-Path $installerPublishDir "KidControl.ServiceHost.exe")  (Join-Path $installerStableDir "KidControl.ServiceHost.exe")  -Force
-    Copy-Item (Join-Path $installerPublishDir "KidControl.UiHost.exe")       (Join-Path $installerStableDir "KidControl.UiHost.exe")       -Force
-    Write-Host "Also copied to stable folder: $installerStableDir"
+    Write-Host "Installer copied to stable folder: $installerStableDir"
 
     New-Item -Path $installerMirrorDir -ItemType Directory -Force | Out-Null
     Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe")    (Join-Path $installerMirrorDir "KidControl.Installer.exe")    -Force
-    Copy-Item (Join-Path $installerPublishDir "KidControl.ServiceHost.exe")  (Join-Path $installerMirrorDir "KidControl.ServiceHost.exe")  -Force
-    Copy-Item (Join-Path $installerPublishDir "KidControl.UiHost.exe")       (Join-Path $installerMirrorDir "KidControl.UiHost.exe")       -Force
-    Write-Host "Also mirrored to: $installerMirrorDir"
+    Write-Host "Installer mirrored to: $installerMirrorDir"
 }
 catch {
     Write-Host "Note: could not copy to one of stable/mirror folders (likely locked). Use run output directly: $installerPublishDir\KidControl.Installer.exe"
@@ -154,7 +150,9 @@ catch {
 Write-Host "Payload publish completed: $publishDir"
 Write-Host "Installer publish completed: $installerPublishDir"
 Write-Host ""
-Write-Host "GitHub Release assets (attach all three):"
+Write-Host "User-facing installer:"
 Write-Host "  $installerStableDir\KidControl.Installer.exe"
-Write-Host "  $installerStableDir\KidControl.ServiceHost.exe"
-Write-Host "  $installerStableDir\KidControl.UiHost.exe"
+Write-Host ""
+Write-Host "GitHub Release payload assets:"
+Write-Host "  $serviceOut\KidControl.ServiceHost.exe"
+Write-Host "  $uiOut\KidControl.UiHost.exe"
