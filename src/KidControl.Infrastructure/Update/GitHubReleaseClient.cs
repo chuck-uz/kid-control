@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace KidControl.Infrastructure.Update;
@@ -10,6 +11,53 @@ namespace KidControl.Infrastructure.Update;
 public sealed class GitHubReleaseClient
 {
     private readonly HttpClient _httpClient;
+
+    #region agent log
+    private static void AgentDebugLog(string runId, string hypothesisId, string location, string message, object data)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                sessionId = "9d75ca",
+                runId,
+                hypothesisId,
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            });
+            var line = payload + Environment.NewLine;
+            var paths = new[]
+            {
+                @"C:\kid-control\kid-control\debug-9d75ca.log",
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "KidControl",
+                    "debug-9d75ca.log"),
+                Path.Combine(Path.GetTempPath(), "KidControl-debug-9d75ca.log")
+            };
+
+            foreach (var path in paths)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.AppendAllText(path, line);
+                    return;
+                }
+                catch
+                {
+                    // Try the next path.
+                }
+            }
+        }
+        catch
+        {
+            // Debug logging must never affect update downloads.
+        }
+    }
+    #endregion
 
     public GitHubReleaseClient(HttpClient httpClient)
     {
@@ -49,20 +97,56 @@ public sealed class GitHubReleaseClient
 
         var totalBytes = response.Content.Headers.ContentLength ?? -1L;
         await using var inputStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await using var outputStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        #region agent log
+        AgentDebugLog("post-fix-update-lock", "H1,H2,H3", "GitHubReleaseClient.cs:DownloadAssetAsync", "Opening destination file for asset download", new
+        {
+            destinationPath,
+            destinationExists = File.Exists(destinationPath),
+            destinationLength = File.Exists(destinationPath) ? new FileInfo(destinationPath).Length : 0,
+            totalBytes
+        });
+        #endregion
+        FileStream outputStream;
+        try
+        {
+            outputStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        }
+        catch (Exception ex)
+        {
+            #region agent log
+            AgentDebugLog("post-fix-update-lock", "H1,H2,H3", "GitHubReleaseClient.cs:DownloadAssetAsync", "Opening destination file failed", new
+            {
+                destinationPath,
+                destinationExists = File.Exists(destinationPath),
+                errorType = ex.GetType().Name,
+                errorMessage = ex.Message,
+                hResult = ex.HResult
+            });
+            #endregion
+            throw;
+        }
+        await using var output = outputStream;
 
         var buffer = new byte[81920];
         long downloaded = 0;
         int read;
         while ((read = await inputStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false)) > 0)
         {
-            await outputStream.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+            await output.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
             downloaded += read;
             if (progress is not null && totalBytes > 0)
             {
                 progress.Report((double)downloaded / totalBytes);
             }
         }
+        #region agent log
+        AgentDebugLog("post-fix-update-lock", "H3", "GitHubReleaseClient.cs:DownloadAssetAsync", "Asset download file write completed", new
+        {
+            destinationPath,
+            downloaded,
+            totalBytes
+        });
+        #endregion
     }
 }
 
