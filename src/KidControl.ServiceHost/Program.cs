@@ -35,13 +35,15 @@ builder.Services.AddSingleton(sp =>
     var sessionStateRepository = sp.GetRequiredService<KidControl.Application.Interfaces.ISessionStateRepository>();
     var logger = sp.GetRequiredService<ILogger<SessionOrchestrator>>();
     var hostLifetime = sp.GetService<IHostApplicationLifetime>();
+    var updateService = sp.GetService<KidControl.Application.Interfaces.IUpdateService>();
 
     var orchestrator = new SessionOrchestrator(
         uiNotifier,
         telegramNotifier,
         sessionStateRepository,
         logger,
-        hostLifetime);
+        hostLifetime,
+        updateService);
     DebugFlightRecorder.Log("Orchestrator created.");
 
     return orchestrator;
@@ -52,6 +54,8 @@ builder.Services.AddSingleton<IndependentTimer>();
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddHostedService<TelegramBotBackgroundService>();
 builder.Services.AddHostedService<NamedPipeCommandServer>();
+builder.Services.AddHostedService<KidControl.Infrastructure.Update.PostUpdateNotifier>();
+builder.Services.AddHostedService<KidControl.Infrastructure.Update.UpdateBackgroundService>();
 
 // Override with appsettings.json stored in ProgramData (protected from deletion by children).
 var programDataConfig = System.IO.Path.Combine(

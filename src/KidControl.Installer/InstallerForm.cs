@@ -609,6 +609,13 @@ public sealed class InstallerForm : Form
             {
                 CriticalProcess = true
             },
+            UpdateConfig = new
+            {
+                Repository = "chuck-uz/kid-control",
+                CheckIntervalHours = 6,
+                AutoCheckEnabled = true,
+                AssetName = "KidControl.Installer.exe"
+            },
             Serilog = new
             {
                 Using = new[] { "Serilog.Sinks.Console", "Serilog.Sinks.File", "Serilog.Formatting.Compact" },
@@ -1557,5 +1564,91 @@ public sealed class InstallerForm : Form
     private void Log(string text)
     {
         _logBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}{Environment.NewLine}");
+    }
+
+    // ─── Silent update / rollback ────────────────────────────────────────────
+
+    /// <summary>
+    /// Called by Program.Main when /silent is passed. Replaces the running binaries
+    /// without showing any UI. Preserves existing appsettings.json and session_state.json.
+    /// Must be called from the UI thread (STA) but no Form will be shown.
+    /// </summary>
+    public void RunSilentUpdate()
+    {
+        var logPath = Path.Combine(ProgramDataPath, "silent_install.log");
+        void SilentLog(string msg)
+        {
+            var line = $"[{DateTimeOffset.UtcNow:u}] {msg}";
+            try { File.AppendAllText(logPath, line + Environment.NewLine); } catch { }
+        }
+
+        SilentLog("Silent update started.");
+
+        try
+        {
+            // Extract embedded payloads to a temp dir.
+            var tempPath = Path.Combine(Path.GetTempPath(), $"KidControlUpdate-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempPath);
+            SilentLog($"Temp dir: {tempPath}");
+
+            ExtractPayload(tempPath);
+
+            Directory.CreateDirectory(ProgramFilesPath);
+
+            // Stop and remove the existing service so the EXE file is not locked.
+            StopAndDeleteService(ServiceName);
+            KillAllKidControlProcessesBlockingUninstall();
+            Thread.Sleep(500);
+
+            // Relax ProgramData ACL so we can write (the new service will re-lock it).
+            if (Directory.Exists(ProgramDataPath))
+            {
+                GrantAdministratorsAndSystemRecursive(ProgramDataPath);
+            }
+
+            // Unlock install folder ACL before overwriting files.
+            UnlockInstallFolderAcl();
+            Thread.Sleep(300);
+
+            // Copy new binaries (overwrite).
+            File.Copy(Path.Combine(tempPath, "KidControl.ServiceHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.ServiceHost.exe"), overwrite: true);
+            File.Copy(Path.Combine(tempPath, "KidControl.UiHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.UiHost.exe"), overwrite: true);
+            SilentLog("Binaries replaced.");
+
+            // Ensure ProgramData directories exist (no ACL change — handled below by EnsureProgramDataFolderProtected).
+            EnsureProgramDataLogsDirectory();
+
+            // Intentionally skip WriteAppSettings() and ResetPersistedSessionState() —
+            // silent update preserves existing Telegram config and session state.
+
+            // Re-lock ProgramData.
+            EnsureProgramDataFolderProtected();
+
+            // Re-register and start service.
+            RegisterService();
+            StartService();
+            SilentLog("Service re-registered and started.");
+
+            // Re-lock install folder.
+            LockInstallFolderAcl();
+
+            // Re-register scheduled tasks.
+            RegisterUiTask();
+            RegisterServiceRestartTask();
+            SilentLog("Scheduled tasks updated.");
+
+            // Re-protect registry key.
+            ProtectServiceRegistryKey();
+
+            // Clean up temp dir.
+            try { Directory.Delete(tempPath, recursive: true); } catch { }
+
+            SilentLog("Silent update completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            SilentLog($"Silent update FAILED: {ex}");
+            throw;
+        }
     }
 }

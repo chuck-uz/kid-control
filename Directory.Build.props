@@ -6,4 +6,14 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <KidControlVersion>1.0.0</KidControlVersion>
+    <Version>$(KidControlVersion)</Version>
+    <AssemblyVersion>$(KidControlVersion).0</AssemblyVersion>
+    <FileVersion>$(KidControlVersion).0</FileVersion>
+    <InformationalVersion>$(KidControlVersion)</InformationalVersion>
+    <Product>KidControl</Product>
+    <Company>KidControl</Company>
+  </PropertyGroup>
 </Project>
