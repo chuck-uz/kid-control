@@ -12,21 +12,4 @@
     <SelfContained>false</SelfContained>
   </PropertyGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Artifacts\KidControl.ServiceHost.exe" LogicalName="Payload.KidControl.ServiceHost.exe" />
-    <EmbeddedResource Include="Artifacts\KidControl.UiHost.exe" LogicalName="Payload.KidControl.UiHost.exe" />
-  </ItemGroup>
-
-  <!-- Fail fast if installer is built without payload (prevents silent empty single-file exe). -->
-  <Target Name="ValidateInstallerPayload" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <_Svc>$(MSBuildProjectDirectory)\Artifacts\KidControl.ServiceHost.exe</_Svc>
-      <_Ui>$(MSBuildProjectDirectory)\Artifacts\KidControl.UiHost.exe</_Ui>
-    </PropertyGroup>
-    <Error
-      Text="Installer payload missing. From repo root run: powershell -ExecutionPolicy Bypass -File .\build.ps1 — it fills src\KidControl.Installer\Artifacts\. Expected: $(_Svc)"
-      Condition="!Exists('$(_Svc)')" />
-    <Error Text="Missing $(_Ui)" Condition="!Exists('$(_Ui)')" />
-  </Target>
-
 </Project>

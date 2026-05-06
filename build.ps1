@@ -2,12 +2,10 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $publishDir = Join-Path $root "publish"
-$installerArtifacts = Join-Path $root "src/KidControl.Installer/Artifacts"
 # Publish installer to a unique run folder so GenerateBundle never collides with a running old exe.
 $installerPublishRoot = Join-Path $root "Build/InstallerPublish"
 $runStamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $installerPublishDir = Join-Path $installerPublishRoot ("run-" + $runStamp)
-$installerPublishArtifacts = Join-Path $installerPublishDir "Artifacts"
 $installerMirrorDir = Join-Path $root "Build/Installer"
 $installerStableDir = Join-Path $root "Build/InstallerPublish-Latest"
 
@@ -107,21 +105,9 @@ if (Test-Path $publishDir) {
     Remove-Item -Path $publishDir -Recurse -Force
 }
 
-if (Test-Path $installerArtifacts) {
-    try {
-        Remove-Item -Path $installerArtifacts -Recurse -Force -ErrorAction Stop
-    }
-    catch {
-        Write-Host "Warning: failed to clean installer artifacts folder, will reuse existing files."
-    }
-}
-
 New-Item -Path $installerPublishRoot -ItemType Directory -Force | Out-Null
-
 New-Item -Path $publishDir -ItemType Directory -Force | Out-Null
-New-Item -Path $installerArtifacts -ItemType Directory -Force | Out-Null
 New-Item -Path $installerPublishDir -ItemType Directory -Force | Out-Null
-New-Item -Path $installerPublishArtifacts -ItemType Directory -Force | Out-Null
 
 $serviceOut = Join-Path $publishDir "ServiceHost"
 $uiOut = Join-Path $publishDir "UiHost"
@@ -129,13 +115,16 @@ $uiOut = Join-Path $publishDir "UiHost"
 Invoke-DotnetPublish "$root/src/KidControl.ServiceHost/KidControl.ServiceHost.csproj" "$serviceOut"
 Invoke-DotnetPublish "$root/src/KidControl.UiHost/KidControl.UiHost.csproj" "$uiOut"
 
-Copy-Item "$serviceOut/KidControl.ServiceHost.exe" "$installerArtifacts/KidControl.ServiceHost.exe" -Force
-Copy-Item "$uiOut/KidControl.UiHost.exe" "$installerArtifacts/KidControl.UiHost.exe" -Force
-
+# Build installer (no embedded payloads - payloads are published as separate release assets)
 Invoke-DotnetPublish "$root/src/KidControl.Installer/KidControl.Installer.csproj" "$installerPublishDir"
 
-Copy-Item "$serviceOut/KidControl.ServiceHost.exe" "$installerPublishArtifacts/KidControl.ServiceHost.exe" -Force
-Copy-Item "$uiOut/KidControl.UiHost.exe" "$installerPublishArtifacts/KidControl.UiHost.exe" -Force
+# Place all three release assets next to the installer in the run folder.
+# These are what gets attached to a GitHub Release:
+#   KidControl.Installer.exe
+#   KidControl.ServiceHost.exe
+#   KidControl.UiHost.exe
+Copy-Item "$serviceOut/KidControl.ServiceHost.exe" "$installerPublishDir/KidControl.ServiceHost.exe" -Force
+Copy-Item "$uiOut/KidControl.UiHost.exe" "$installerPublishDir/KidControl.UiHost.exe" -Force
 
 try {
     if (Test-Path $installerStableDir) {
@@ -147,19 +136,15 @@ try {
         }
     }
     New-Item -Path $installerStableDir -ItemType Directory -Force | Out-Null
-    $stableArtifacts = Join-Path $installerStableDir "Artifacts"
-    New-Item -Path $stableArtifacts -ItemType Directory -Force | Out-Null
-    Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe") (Join-Path $installerStableDir "KidControl.Installer.exe") -Force
-    Copy-Item "$installerPublishArtifacts/KidControl.ServiceHost.exe" "$stableArtifacts/KidControl.ServiceHost.exe" -Force
-    Copy-Item "$installerPublishArtifacts/KidControl.UiHost.exe" "$stableArtifacts/KidControl.UiHost.exe" -Force
+    Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe")    (Join-Path $installerStableDir "KidControl.Installer.exe")    -Force
+    Copy-Item (Join-Path $installerPublishDir "KidControl.ServiceHost.exe")  (Join-Path $installerStableDir "KidControl.ServiceHost.exe")  -Force
+    Copy-Item (Join-Path $installerPublishDir "KidControl.UiHost.exe")       (Join-Path $installerStableDir "KidControl.UiHost.exe")       -Force
     Write-Host "Also copied to stable folder: $installerStableDir"
 
     New-Item -Path $installerMirrorDir -ItemType Directory -Force | Out-Null
-    $mirrorArtifacts = Join-Path $installerMirrorDir "Artifacts"
-    New-Item -Path $mirrorArtifacts -ItemType Directory -Force | Out-Null
-    Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe") (Join-Path $installerMirrorDir "KidControl.Installer.exe") -Force
-    Copy-Item "$installerPublishArtifacts/KidControl.ServiceHost.exe" "$mirrorArtifacts/KidControl.ServiceHost.exe" -Force
-    Copy-Item "$installerPublishArtifacts/KidControl.UiHost.exe" "$mirrorArtifacts/KidControl.UiHost.exe" -Force
+    Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe")    (Join-Path $installerMirrorDir "KidControl.Installer.exe")    -Force
+    Copy-Item (Join-Path $installerPublishDir "KidControl.ServiceHost.exe")  (Join-Path $installerMirrorDir "KidControl.ServiceHost.exe")  -Force
+    Copy-Item (Join-Path $installerPublishDir "KidControl.UiHost.exe")       (Join-Path $installerMirrorDir "KidControl.UiHost.exe")       -Force
     Write-Host "Also mirrored to: $installerMirrorDir"
 }
 catch {
@@ -168,3 +153,8 @@ catch {
 
 Write-Host "Payload publish completed: $publishDir"
 Write-Host "Installer publish completed: $installerPublishDir"
+Write-Host ""
+Write-Host "GitHub Release assets (attach all three):"
+Write-Host "  $installerStableDir\KidControl.Installer.exe"
+Write-Host "  $installerStableDir\KidControl.ServiceHost.exe"
+Write-Host "  $installerStableDir\KidControl.UiHost.exe"
