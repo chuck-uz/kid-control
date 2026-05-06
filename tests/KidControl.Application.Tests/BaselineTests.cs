@@ -37,7 +37,7 @@ public sealed class SessionOrchestratorTests
 
         var state = orchestrator.GetCurrentState();
         state.Status.Should().Be("Blocked");
-        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(15));
+        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(20));
         telegramNotifier.Verify(
             x => x.SendReplyAsync(
                 chatId,

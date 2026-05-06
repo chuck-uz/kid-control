@@ -10,52 +10,62 @@
         WindowStartupLocation="Manual"
         AllowsTransparency="True"
         Background="Transparent"
-        Width="150"
-        Height="50"
+        Width="280"
+        Height="96"
+        FontFamily="Segoe UI, Segoe UI Variable Text"
         Opacity="1">
 
     <Grid>
         <Border x:Name="WidgetBorder"
-                Width="260"
-                Height="140"
+                Width="280"
+                Height="96"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Top"
                 Margin="0,10,10,0"
-                Style="{StaticResource GlassCardStyle}">
-            <Grid>
+                Background="#BF333333"
+                BorderBrush="#10FFFFFF"
+                BorderThickness="1"
+                CornerRadius="14"
+                Padding="16"
+                SnapsToDevicePixels="True">
+            <Grid VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Grid Width="98" Height="98" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Ellipse Stroke="{StaticResource RingBackgroundBrush}"
-                             StrokeThickness="8" />
+                <Grid Width="50"
+                      Height="50"
+                      Margin="0,0,10,0"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Center">
+                    <Ellipse Stroke="#FF444444"
+                             StrokeThickness="5" />
                     <Path x:Name="WidgetProgressPath"
-                          Stroke="{StaticResource PrimaryBrush}"
-                          StrokeThickness="8"
+                          Stroke="DodgerBlue"
+                          StrokeThickness="5"
                           StrokeStartLineCap="Round"
                           StrokeEndLineCap="Round" />
-                    <TextBlock Text="{Binding TimeRemaining}"
-                               Style="{StaticResource BodyTextStyle}"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               FontWeight="SemiBold"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center" />
                 </Grid>
 
                 <StackPanel Grid.Column="1"
                             VerticalAlignment="Center"
                             Margin="12,0,0,0">
                     <TextBlock Text="KidControl"
-                               Style="{StaticResource HeadingTextStyle}"
-                               FontSize="20" />
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="#FFFFFFFF" />
                     <TextBlock Text="{Binding SessionLabel}"
-                               Style="{StaticResource BodyTextStyle}"
-                               Margin="0,8,0,0" />
-                    <TextBlock Text="{Binding TimeRemaining}"
-                               Style="{StaticResource TimerTextStyle}"
-                               Margin="0,6,0,0" />
+                               FontSize="8"
+                               Margin="0,2,0,0"
+                               FontWeight="Normal"
+                               Foreground="#FFAAAAAA" />
+                    <TextBlock x:Name="WidgetTimerText"
+                               Text="{Binding TimeRemainingStr}"
+                               FontSize="20"
+                               Margin="0,3,0,0"
+                               FontWeight="SemiBold"
+                               Foreground="#FFFFFFFF" />
                 </StackPanel>
             </Grid>
         </Border>

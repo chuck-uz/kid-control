@@ -16,6 +16,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        if (OperatingSystem.IsWindows())
+        {
+            Services.ProcessProtection.Apply();
+        }
+
         var logDir = ResolveWritableUiLogDirectory();
         var textLog = Path.Combine(logDir, "ui-.log");
         var jsonLog = Path.Combine(logDir, "ui-ai-.json");
@@ -41,11 +46,13 @@ public partial class App : Application
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         services.AddSingleton<UiCommandPipeServer>();
+        services.AddSingleton<ServiceWatchdog>();
 
         _serviceProvider = services.BuildServiceProvider();
 
         _serviceProvider.GetRequiredService<NamedPipeClient>().Start();
         _serviceProvider.GetRequiredService<UiCommandPipeServer>().Start();
+        _serviceProvider.GetRequiredService<ServiceWatchdog>().Start();
 
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -53,32 +60,27 @@ public partial class App : Application
 
     private static string ResolveWritableUiLogDirectory()
     {
-        var sharedDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "KidControl",
-            "logs");
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "KidControl", "logs"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),  "KidControl", "logs"),
+            Path.Combine(Path.GetTempPath(), "KidControl", "logs"),
+        };
 
-        try
+        foreach (var dir in candidates)
         {
-            Directory.CreateDirectory(sharedDir);
-            return sharedDir;
+            try { Directory.CreateDirectory(dir); return dir; }
+            catch { /* try next candidate */ }
         }
-        catch (UnauthorizedAccessException)
-        {
-            // UiHost runs in user session and may not have write permissions to ProgramData after hardened ACL setup.
-            var localDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "KidControl",
-                "logs");
-            Directory.CreateDirectory(localDir);
-            return localDir;
-        }
+
+        return Path.GetTempPath(); // last resort, never throws
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
         _serviceProvider?.GetService<NamedPipeClient>()?.Stop();
         _serviceProvider?.GetService<UiCommandPipeServer>()?.Stop();
+        _serviceProvider?.GetService<ServiceWatchdog>()?.Stop();
         _serviceProvider?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);

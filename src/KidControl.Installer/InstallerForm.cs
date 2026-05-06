@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
@@ -356,7 +357,6 @@ public sealed class InstallerForm : Form
 
             File.Copy(Path.Combine(tempPath, "KidControl.ServiceHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.ServiceHost.exe"), true);
             File.Copy(Path.Combine(tempPath, "KidControl.UiHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.UiHost.exe"), true);
-            File.Copy(Path.Combine(tempPath, "KidControl.Unlocker.exe"), Path.Combine(ProgramFilesPath, "KidControl.Unlocker.exe"), true);
 
             if (_persistenceCheck.Checked)
             {
@@ -368,17 +368,31 @@ public sealed class InstallerForm : Form
             ResetPersistedSessionState();
             WriteAppSettings();
             Log("Файлы установлены.");
-            Log($"Логи службы и UI: {Path.Combine(ProgramDataPath, "logs")}");
 
-            RegisterUiTask();
-            Log("Задача планировщика для UI обновлена.");
-
+            // Register and start the service before locking the folder ACL
+            // so the service binary can be accessed by the SCM during first start.
             if (_autostartCheck.Checked)
             {
                 RegisterService();
                 StartService();
                 Log("Служба зарегистрирована и запущена.");
             }
+
+            LockInstallFolderAcl();
+            Log($"Логи службы и UI: {Path.Combine(ProgramDataPath, "logs")}");
+
+            RegisterUiTask();
+            RegisterServiceRestartTask();
+            Log("Задачи планировщика для UI и перезапуска службы обновлены.");
+
+            if (_autostartCheck.Checked)
+            {
+                ProtectServiceRegistryKey();
+                Log("Ключ реестра службы защищён.");
+            }
+
+            HideFromUninstallList();
+            Log("Приложение скрыто из списка установленных программ.");
 
             // Пытаемся поднять UI сразу после установки, чтобы не ждать следующего входа пользователя.
             TryLaunchUiInUserSession();
@@ -402,6 +416,8 @@ public sealed class InstallerForm : Form
             return;
         }
 
+        TryEnableSeDebugPrivilege();
+
         try
         {
             Log("Начинаю полное удаление…");
@@ -418,8 +434,11 @@ public sealed class InstallerForm : Form
                 return;
             }
 
+            UnprotectServiceRegistryKey();
             StopAndDeleteService(ServiceName);
             DeleteUiTask();
+            DeleteServiceRestartTask();
+            RemoveFromUninstallList();
             KillAllKidControlProcessesBlockingUninstall();
             Thread.Sleep(1200);
             KillAllKidControlProcessesBlockingUninstall();
@@ -432,6 +451,7 @@ public sealed class InstallerForm : Form
 
             if (Directory.Exists(ProgramFilesPath))
             {
+                UnlockInstallFolderAcl();
                 Log("Restart Manager: снятие блокировок с каталога установки…");
                 MaybeRestartManagerRelease(ProgramFilesPath);
                 Thread.Sleep(1500);
@@ -461,7 +481,6 @@ public sealed class InstallerForm : Form
     {
         Extract("Payload.KidControl.ServiceHost.exe", Path.Combine(tempPath, "KidControl.ServiceHost.exe"));
         Extract("Payload.KidControl.UiHost.exe", Path.Combine(tempPath, "KidControl.UiHost.exe"));
-        Extract("Payload.KidControl.Unlocker.exe", Path.Combine(tempPath, "KidControl.Unlocker.exe"));
     }
 
     private static void Extract(string logicalName, string destinationPath)
@@ -560,8 +579,6 @@ public sealed class InstallerForm : Form
         candidates.Add(Path.Combine(Directory.GetCurrentDirectory(), "src", "KidControl.Installer", "Artifacts", fileName));
         candidates.Add(Path.Combine(Directory.GetCurrentDirectory(), "publish", "ServiceHost", fileName));
         candidates.Add(Path.Combine(Directory.GetCurrentDirectory(), "publish", "UiHost", fileName));
-        candidates.Add(Path.Combine(Directory.GetCurrentDirectory(), "publish", "Unlocker", fileName));
-
         var sourcePath = candidates.FirstOrDefault(File.Exists);
         if (sourcePath is null)
         {
@@ -588,6 +605,10 @@ public sealed class InstallerForm : Form
                 NightModeStart = "22:00",
                 NightModeEnd = "07:00"
             },
+            Protection = new
+            {
+                CriticalProcess = true
+            },
             Serilog = new
             {
                 Using = new[] { "Serilog.Sinks.Console", "Serilog.Sinks.File", "Serilog.Formatting.Compact" },
@@ -607,7 +628,8 @@ public sealed class InstallerForm : Form
         };
 
         var json = JsonSerializer.Serialize(model, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(Path.Combine(ProgramFilesPath, "appsettings.json"), json, Encoding.UTF8);
+        // Write to ProgramData (protected folder) so children cannot delete the config.
+        File.WriteAllText(Path.Combine(ProgramDataPath, "appsettings.json"), json, Encoding.UTF8);
     }
 
     private static void EnsureProgramDataLogsDirectory()
@@ -663,30 +685,15 @@ public sealed class InstallerForm : Form
             return;
         }
 
-        // 1) Shell execute directly.
-        if (TryStartUiViaShell(uiExe))
-        {
-            return;
-        }
-
-        // 2) Explorer fallback in interactive shell.
-        if (TryStartUiViaExplorer(uiExe))
-        {
-            return;
-        }
-
-        // 3) Run scheduled task now (task already created on install).
+        // Use the scheduled task (already registered with /RL LIMITED) — this is the
+        // only reliable way to launch a non-elevated process from an elevated installer.
         if (TryRunUiTaskNow())
         {
             return;
         }
 
-        MessageBox.Show(
-            this,
-            "Не удалось запустить UI автоматически. Откройте вручную: C:\\Program Files\\KidControl\\KidControl.UiHost.exe",
-            "KidControl",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Warning);
+        // Last resort: direct shell execute.
+        TryStartUiViaShell(uiExe);
     }
 
     private bool TryStartUiViaShell(string uiExe)
@@ -797,11 +804,11 @@ public sealed class InstallerForm : Form
         {
             RunExternal(
                 "icacls.exe",
-                $"\"{rootPath}\" /grant \"Administrators:(OI)(CI)F\" /T /C",
+                $"\"{rootPath}\" /grant \"*S-1-5-32-544:(OI)(CI)F\" /T /C",
                 waitMs: 120_000);
             RunExternal(
                 "icacls.exe",
-                $"\"{rootPath}\" /grant \"SYSTEM:(OI)(CI)F\" /T /C",
+                $"\"{rootPath}\" /grant \"*S-1-5-18:(OI)(CI)F\" /T /C",
                 waitMs: 120_000);
         }
         catch
@@ -824,7 +831,7 @@ public sealed class InstallerForm : Form
         process?.WaitForExit(waitMs);
     }
 
-    private void TryDeleteDirectoryWithRetry(string path, int attempts = 12, int delayMs = 900)
+    private void TryDeleteDirectoryWithRetry(string path, int attempts = 4, int delayMs = 900)
     {
         for (var i = 0; i < attempts; i++)
         {
@@ -838,24 +845,22 @@ public sealed class InstallerForm : Form
                 Directory.Delete(path, true);
                 return;
             }
-            catch (IOException) when (i < attempts - 1)
+            catch (IOException)
             {
-                Log($"Каталог занят процессом… ({i + 1}/{attempts}) — Restart Manager + завершение процессов KidControl");
+                if (i >= attempts - 1) break;
+                Log($"Каталог занят процессом… ({i + 1}/{attempts}) — повтор через {delayMs} мс");
                 if (i >= 1)
                 {
                     TakeOwnershipAndResetAttributes(path);
                 }
 
-                MaybeRestartManagerRelease(path);
-                KillAllKidControlProcessesBlockingUninstall();
                 Thread.Sleep(delayMs);
             }
-            catch (UnauthorizedAccessException) when (i < attempts - 1)
+            catch (UnauthorizedAccessException)
             {
-                Log($"Нет доступа к каталогу… ({i + 1}/{attempts}) — Restart Manager + процессы KidControl");
+                if (i >= attempts - 1) break;
+                Log($"Нет доступа к каталогу… ({i + 1}/{attempts}) — повтор через {delayMs} мс");
                 TakeOwnershipAndResetAttributes(path);
-                MaybeRestartManagerRelease(path);
-                KillAllKidControlProcessesBlockingUninstall();
                 Thread.Sleep(delayMs);
             }
         }
@@ -964,8 +969,8 @@ public sealed class InstallerForm : Form
 
         Log("Владение и права: takeown + icacls + снятие read-only…");
         Run("takeown.exe", $"/F \"{path}\" /R /D Y", false);
-        Run("icacls.exe", $"\"{path}\" /grant \"Administrators:(OI)(CI)F\" /T /C", false);
-        Run("icacls.exe", $"\"{path}\" /grant \"SYSTEM:(OI)(CI)F\" /T /C", false);
+        Run("icacls.exe", $"\"{path}\" /grant \"*S-1-5-32-544:(OI)(CI)F\" /T /C", false);
+        Run("icacls.exe", $"\"{path}\" /grant \"*S-1-5-18:(OI)(CI)F\" /T /C", false);
         Run("cmd.exe", $"/c attrib -R -S -H \"{path}\" /S /D", false);
     }
 
@@ -994,7 +999,7 @@ public sealed class InstallerForm : Form
     {
         var serviceExe = Path.Combine(ProgramFilesPath, "KidControl.ServiceHost.exe");
         Run("sc.exe", $"create {ServiceName} binPath= \"\\\"{serviceExe}\\\"\" start= auto obj= LocalSystem", true);
-        Run("sc.exe", $"failure {ServiceName} reset= 0 actions= restart/5000", false);
+        Run("sc.exe", $"failure {ServiceName} reset= 0 actions= restart/1000/restart/1000/restart/1000", false);
     }
 
     private void StartService()
@@ -1070,18 +1075,355 @@ public sealed class InstallerForm : Form
         Run("schtasks.exe", $"/Delete /TN \"{InstallTaskName}\" /F", false);
     }
 
+    // ─── Protection helpers ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Locks C:\Program Files\KidControl so that only SYSTEM has write/delete rights.
+    /// Administrators and Users retain Read+Execute only.
+    /// Uses the .NET DirectorySecurity API with well-known SIDs to avoid icacls
+    /// locale/SID-resolution issues that silently leave only SYSTEM:F on files.
+    /// </summary>
+    private void LockInstallFolderAcl()
+    {
+        try
+        {
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var usersSid  = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+
+            ApplyAclToDirectoryTree(ProgramFilesPath, systemSid, adminsSid, usersSid);
+            Log("Права на папку установки ограничены (только SYSTEM может изменять файлы).");
+        }
+        catch (Exception ex)
+        {
+            Log($"Предупреждение: не удалось установить ACL на папку установки: {ex.Message}");
+        }
+    }
+
+    private static void ApplyAclToDirectoryTree(
+        string root,
+        SecurityIdentifier systemSid,
+        SecurityIdentifier adminsSid,
+        SecurityIdentifier usersSid)
+    {
+        // Apply to the root folder itself.
+        var dirInfo = new DirectoryInfo(root);
+        var dirSec = dirInfo.GetAccessControl();
+        dirSec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        dirSec.AddAccessRule(new FileSystemAccessRule(systemSid,
+            FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+        dirSec.AddAccessRule(new FileSystemAccessRule(adminsSid,
+            FileSystemRights.ReadAndExecute,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+        dirSec.AddAccessRule(new FileSystemAccessRule(usersSid,
+            FileSystemRights.ReadAndExecute,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+            PropagationFlags.None, AccessControlType.Allow));
+        dirInfo.SetAccessControl(dirSec);
+
+        // Apply to every file recursively (files don't inherit automatically when
+        // inheritance is disabled on the folder with SetAccessRuleProtection).
+        foreach (var file in dirInfo.GetFiles("*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var fileSec = file.GetAccessControl();
+                fileSec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                fileSec.AddAccessRule(new FileSystemAccessRule(systemSid,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.None, PropagationFlags.None, AccessControlType.Allow));
+                fileSec.AddAccessRule(new FileSystemAccessRule(adminsSid,
+                    FileSystemRights.ReadAndExecute,
+                    InheritanceFlags.None, PropagationFlags.None, AccessControlType.Allow));
+                fileSec.AddAccessRule(new FileSystemAccessRule(usersSid,
+                    FileSystemRights.ReadAndExecute,
+                    InheritanceFlags.None, PropagationFlags.None, AccessControlType.Allow));
+                file.SetAccessControl(fileSec);
+            }
+            catch { /* skip locked files (e.g. running service EXE) */ }
+        }
+    }
+
+    /// <summary>
+    /// Restores full-control access for Administrators so the uninstaller can delete files.
+    /// </summary>
+    private void UnlockInstallFolderAcl()
+    {
+        try
+        {
+            var dirInfo = new DirectoryInfo(ProgramFilesPath);
+            if (!dirInfo.Exists) return;
+
+            var adminsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+
+            void grantFull(FileSystemSecurity sec, bool isDir)
+            {
+                sec.SetAccessRuleProtection(isProtected: false, preserveInheritance: true);
+                sec.AddAccessRule(new FileSystemAccessRule(adminsSid,
+                    FileSystemRights.FullControl,
+                    isDir
+                        ? InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit
+                        : InheritanceFlags.None,
+                    PropagationFlags.None, AccessControlType.Allow));
+            }
+
+            var dirSec = dirInfo.GetAccessControl();
+            grantFull(dirSec, isDir: true);
+            dirInfo.SetAccessControl(dirSec);
+
+            foreach (var file in dirInfo.GetFiles("*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    var fileSec = file.GetAccessControl();
+                    grantFull(fileSec, isDir: false);
+                    file.SetAccessControl(fileSec);
+                }
+                catch { /* skip locked files */ }
+            }
+
+            Log("ACL на папку установки снят для удаления.");
+        }
+        catch (Exception ex)
+        {
+            Log($"Предупреждение: не удалось снять ACL папки установки: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Creates a scheduled task KidControl.Service.Restart that runs as SYSTEM and
+    /// starts the service via sc.exe. UiHost's ServiceWatchdog triggers this task
+    /// if it detects the service process is gone.
+    /// </summary>
+    private void RegisterServiceRestartTask()
+    {
+        const string restartTaskName = "KidControl.Service.Restart";
+        var args = $"/Create /TN \"{restartTaskName}\" /TR \"sc.exe start {ServiceName}\" /SC ONDEMAND /RU SYSTEM /RL HIGHEST /F";
+        Run("schtasks.exe", args, false);
+    }
+
+    private void DeleteServiceRestartTask()
+    {
+        Run("schtasks.exe", "/Delete /TN \"KidControl.Service.Restart\" /F", false);
+    }
+
+    /// <summary>
+    /// Writes registry values that hide KidControl from "Apps &amp; Features" /
+    /// "Add or Remove Programs". SystemComponent=1 hides from the modern Settings
+    /// app; NoRemove and NoModify disable the Remove/Change buttons in classic
+    /// Control Panel.
+    /// </summary>
+    private void HideFromUninstallList()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KidControl",
+                writable: true);
+            if (key is null) return;
+            key.SetValue("DisplayName", "KidControl", Microsoft.Win32.RegistryValueKind.String);
+            key.SetValue("SystemComponent", 1, Microsoft.Win32.RegistryValueKind.DWord);
+            key.SetValue("NoRemove", 1, Microsoft.Win32.RegistryValueKind.DWord);
+            key.SetValue("NoModify", 1, Microsoft.Win32.RegistryValueKind.DWord);
+            Log("Запись об установке скрыта из списка программ.");
+        }
+        catch (Exception ex)
+        {
+            Log($"Предупреждение: не удалось скрыть из списка программ: {ex.Message}");
+        }
+    }
+
+    private void RemoveFromUninstallList()
+    {
+        try
+        {
+            Microsoft.Win32.Registry.LocalMachine.DeleteSubKey(
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KidControl",
+                throwOnMissingSubKey: false);
+        }
+        catch (Exception ex)
+        {
+            Log($"Предупреждение: не удалось удалить запись из реестра: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Restricts the service registry key so ordinary users and non-SYSTEM admins
+    /// cannot delete or modify the service registration.
+    /// </summary>
+    private void ProtectServiceRegistryKey()
+    {
+        try
+        {
+            var keyPath = $@"SYSTEM\CurrentControlSet\Services\{ServiceName}";
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(keyPath, writable: true);
+            if (key is null)
+            {
+                Log($"Предупреждение: ключ реестра службы не найден для защиты: {keyPath}");
+                return;
+            }
+
+            var acl = key.GetAccessControl();
+            acl.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            var system = new System.Security.Principal.SecurityIdentifier(
+                System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+            var admins = new System.Security.Principal.SecurityIdentifier(
+                System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+
+            acl.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(
+                system,
+                System.Security.AccessControl.RegistryRights.FullControl,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Allow));
+
+            acl.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(
+                admins,
+                System.Security.AccessControl.RegistryRights.ReadKey,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Allow));
+
+            key.SetAccessControl(acl);
+            Log("Ключ реестра службы защищён (только SYSTEM может изменять).");
+        }
+        catch (Exception ex)
+        {
+            Log($"Предупреждение: не удалось защитить ключ реестра службы: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Restores inherited ACL on the service registry key so sc.exe can delete it
+    /// during uninstall.
+    /// </summary>
+    private void UnprotectServiceRegistryKey()
+    {
+        try
+        {
+            var keyPath = $@"SYSTEM\CurrentControlSet\Services\{ServiceName}";
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(keyPath, writable: true);
+            if (key is null) return;
+
+            var acl = key.GetAccessControl();
+            acl.SetAccessRuleProtection(isProtected: false, preserveInheritance: true);
+
+            var admins = new System.Security.Principal.SecurityIdentifier(
+                System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+            acl.AddAccessRule(new System.Security.AccessControl.RegistryAccessRule(
+                admins,
+                System.Security.AccessControl.RegistryRights.FullControl,
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit,
+                System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Allow));
+
+            key.SetAccessControl(acl);
+        }
+        catch
+        {
+            // Best effort — sc.exe delete may still work via SYSTEM context.
+        }
+    }
+
     /// <summary>
     /// Завершает все процессы, у которых исполняемый файл лежит в каталоге установки (и известные имена по всей системе),
     /// чтобы снять блокировку с Program Files\KidControl.
     /// </summary>
     private void KillAllKidControlProcessesBlockingUninstall()
     {
+        KillKidControlProcessesAsSystem();
         Run("taskkill.exe", "/F /IM KidControl.UiHost.exe", false);
         Run("taskkill.exe", "/F /IM KidControl.ServiceHost.exe", false);
-        Run("taskkill.exe", "/F /IM KidControl.Unlocker.exe", false);
-
         StopProcessesUnderInstallFolderViaPowerShellCim();
         KillProcessesWhoseImagePathIsUnderInstallFolder();
+    }
+
+    /// <summary>
+    /// Завершает KidControl-процессы синхронно, используя SeDebugPrivilege для обхода DACL-запрета
+    /// PROCESS_TERMINATE для Admins. TryEnableSeDebugPrivilege() должен быть вызван заранее.
+    /// </summary>
+    private void KillKidControlProcessesAsSystem()
+    {
+        foreach (var name in new[] { "KidControl.UiHost", "KidControl.ServiceHost" })
+        {
+            foreach (var proc in Process.GetProcessesByName(name))
+            {
+                using (proc)
+                {
+                    try
+                    {
+                        proc.Kill();
+                        proc.WaitForExit(3000);
+                        Log($"Процесс {name}.exe завершён (SeDebugPrivilege).");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Предупреждение: не удалось завершить {name}.exe: {ex.Message}");
+                    }
+                }
+            }
+        }
+    }
+
+    // ─── SeDebugPrivilege P/Invoke ─────────────────────────────────────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LUID { public uint LowPart; public int HighPart; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LUID_AND_ATTRIBUTES { public LUID Luid; public uint Attributes; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TOKEN_PRIVILEGES { public uint PrivilegeCount; public LUID_AND_ATTRIBUTES Privileges; }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool OpenProcessToken(IntPtr hProcess, uint desiredAccess, out IntPtr hToken);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool LookupPrivilegeValue(string? lpSystemName, string lpName, out LUID lpLuid);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool AdjustTokenPrivileges(IntPtr hToken, bool disableAll,
+        ref TOKEN_PRIVILEGES newState, uint bufLen, IntPtr prevState, IntPtr retLen);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    /// <summary>
+    /// Активирует SeDebugPrivilege в текущем процессе. После этого Process.Kill() работает
+    /// на любых процессах вне зависимости от их DACL.
+    /// </summary>
+    private static void TryEnableSeDebugPrivilege()
+    {
+        const uint TOKEN_ADJUST_PRIVILEGES = 0x0020;
+        const uint TOKEN_QUERY = 0x0008;
+        const uint SE_PRIVILEGE_ENABLED = 0x00000002;
+
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, out var hToken))
+            return;
+        try
+        {
+            if (!LookupPrivilegeValue(null, "SeDebugPrivilege", out var luid))
+                return;
+            var tp = new TOKEN_PRIVILEGES
+            {
+                PrivilegeCount = 1,
+                Privileges = new LUID_AND_ATTRIBUTES { Luid = luid, Attributes = SE_PRIVILEGE_ENABLED }
+            };
+            AdjustTokenPrivileges(hToken, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+        finally
+        {
+            CloseHandle(hToken);
+        }
     }
 
     private void StopProcessesUnderInstallFolderViaPowerShellCim()

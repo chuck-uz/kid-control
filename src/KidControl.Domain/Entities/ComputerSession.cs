@@ -106,6 +106,15 @@ public sealed class ComputerSession
         }
     }
 
+    /// <summary>Сбрасывает сессию в начало игровой фазы с полным таймером.</summary>
+    public void ResetToPlayStart()
+    {
+        if (CurrentStatus == LockStatus.ForceBlocked || CurrentStatus == LockStatus.NightBlock)
+            return;
+        CurrentStatus = LockStatus.Active;
+        TimeRemaining = GetPlayDuration();
+    }
+
     public void SetNightBlock()
     {
         CurrentStatus = LockStatus.NightBlock;

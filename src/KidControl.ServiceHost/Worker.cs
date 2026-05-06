@@ -14,6 +14,7 @@ public sealed class Worker(
     IndependentTimer independentTimer,
     ProcessWatchdog processWatchdog,
     TaskSchedulerManager taskSchedulerManager,
+    TamperDetector tamperDetector,
     IOptions<TelegramConfig> telegramConfig,
     ILogger<Worker> logger) : BackgroundService
 {
@@ -29,6 +30,9 @@ public sealed class Worker(
             var startupState = orchestrator.GetCurrentState();
             DebugFlightRecorder.Log($"Current Status: {startupState.Status}");
             DebugFlightRecorder.Log($"ProgramData: {Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)}");
+
+            // Start tamper detector before anything else so file deletions are caught immediately.
+            tamperDetector.Start();
 
             // Start timer first with highest priority.
             var timerTask = Task.Run(() => independentTimer.RunAsync(stoppingToken), stoppingToken);

@@ -34,6 +34,7 @@ public static class InfrastructureModule
         services.AddSingleton<ISessionStateRepository, JsonFileStateRepository>();
         services.AddSingleton<ProcessWatchdog>();
         services.AddSingleton<TaskSchedulerManager>();
+        services.AddSingleton<TamperDetector>();
 
         return services;
     }
