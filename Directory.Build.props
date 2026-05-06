@@ -8,12 +8,14 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <KidControlVersion>1.0.0</KidControlVersion>
-    <Version>$(KidControlVersion)</Version>
-    <AssemblyVersion>$(KidControlVersion).0</AssemblyVersion>
-    <FileVersion>$(KidControlVersion).0</FileVersion>
-    <InformationalVersion>$(KidControlVersion)</InformationalVersion>
     <Product>KidControl</Product>
     <Company>KidControl</Company>
   </PropertyGroup>
+
+  <!-- Version is derived automatically from git tags by MinVer.
+       Tag the commit: git tag v1.0.1 then git push with the tags flag.
+       MinVer sets Version/AssemblyVersion/FileVersion = 1.0.1 -->
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="4.*" PrivateAssets="All" />
+  </ItemGroup>
 </Project>

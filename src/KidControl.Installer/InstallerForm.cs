@@ -490,6 +490,10 @@ public sealed class InstallerForm : Form
         }
     }
 
+    /// <summary>
+    /// Returns the raw tag name from the latest GitHub release (e.g. "v1.0.1").
+    /// Use <see cref="StripTagPrefix"/> to get a display-friendly version number.
+    /// </summary>
     private static async Task<string?> GetLatestGitHubTagAsync()
     {
         try
@@ -504,6 +508,13 @@ public sealed class InstallerForm : Form
         catch { }
         return null;
     }
+
+    /// <summary>
+    /// Strips the conventional "v" prefix from a git tag so it can be compared
+    /// against FileVersionInfo.ProductVersion (e.g. "v1.0.1" → "1.0.1").
+    /// </summary>
+    private static string StripTagPrefix(string tag) =>
+        tag.StartsWith('v') ? tag[1..] : tag;
 
     /// <summary>
     /// Downloads ServiceHost.exe and UiHost.exe for the given release tag into destDir.
@@ -521,7 +532,7 @@ public sealed class InstallerForm : Form
             return;
         }
 
-        Log($"Скачиваю бинарники версии {tag} с GitHub...");
+        Log($"Скачиваю бинарники версии {StripTagPrefix(tag)} с GitHub...");
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
         http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "KidControl-Installer");
 
@@ -547,9 +558,9 @@ public sealed class InstallerForm : Form
         }
 
         if (!File.Exists(svcDest))
-            throw new InvalidOperationException($"Не удалось получить {AssetServiceHost} из релиза {tag}.");
+            throw new InvalidOperationException($"Не удалось получить {AssetServiceHost} из релиза {StripTagPrefix(tag)}.");
         if (!File.Exists(uiDest))
-            throw new InvalidOperationException($"Не удалось получить {AssetUiHost} из релиза {tag}.");
+            throw new InvalidOperationException($"Не удалось получить {AssetUiHost} из релиза {StripTagPrefix(tag)}.");
     }
 
     private static bool TryCopyPayloadFromDisk(string fileName, string destinationPath)
@@ -1617,7 +1628,8 @@ public sealed class InstallerForm : Form
         ShowStep(0);
 
         var latest = await GetLatestGitHubTagAsync();
-        _manageLatestLabel.Text = $"Последняя версия на GitHub: {latest ?? "не удалось получить"}";
+        var latestDisplay = latest is null ? "не удалось получить" : StripTagPrefix(latest);
+        _manageLatestLabel.Text = $"Последняя версия на GitHub: {latestDisplay}";
     }
 
     private void SetManageButtonsEnabled(bool enabled)
@@ -1736,7 +1748,7 @@ public sealed class InstallerForm : Form
             // Determine latest release tag and download payloads.
             var tag = GetLatestGitHubTagAsync().GetAwaiter().GetResult()
                       ?? throw new InvalidOperationException("Could not determine latest GitHub release tag.");
-            SilentLog($"Latest tag: {tag}");
+            SilentLog($"Latest version: {StripTagPrefix(tag)}");
 
             // DownloadPayloadAsync internally calls Log() which writes to the in-memory
             // _logBox — harmless in silent mode since no UI message pump is running.
