@@ -23,6 +23,7 @@ public sealed class SessionOrchestrator
     private readonly ITelegramNotifier _telegramNotifier;
     private readonly ISessionStateRepository _sessionStateRepository;
     private readonly IHostApplicationLifetime? _hostApplicationLifetime;
+    private readonly IUpdateService? _updateService;
     private readonly ILogger<SessionOrchestrator> _logger;
     private string? _pendingOtp;
     private DateTimeOffset _otpExpiresAt;
@@ -41,13 +42,15 @@ public sealed class SessionOrchestrator
         ITelegramNotifier telegramNotifier,
         ISessionStateRepository sessionStateRepository,
         ILogger<SessionOrchestrator> logger,
-        IHostApplicationLifetime? hostApplicationLifetime = null)
+        IHostApplicationLifetime? hostApplicationLifetime = null,
+        IUpdateService? updateService = null)
     {
         _uiNotifier = uiNotifier ?? throw new ArgumentNullException(nameof(uiNotifier));
         _telegramNotifier = telegramNotifier ?? throw new ArgumentNullException(nameof(telegramNotifier));
         _sessionStateRepository = sessionStateRepository ?? throw new ArgumentNullException(nameof(sessionStateRepository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hostApplicationLifetime = hostApplicationLifetime;
+        _updateService = updateService;
 
         _session = new ComputerSession();
         _session.SetRule(new ScheduleRule(playMinutes: DefaultPlayMinutes, restMinutes: DefaultRestMinutes));
@@ -916,5 +919,61 @@ public sealed class SessionOrchestrator
             ? nowLocal.Date
             : nowLocal.Date.AddDays(1);
         return new DateTimeOffset(endDate.Add(_nightModeEnd), nowLocal.Offset);
+    }
+
+    // ─── Update / version management ────────────────────────────────────────
+
+    public string GetVersionInfoText()
+    {
+        var current = _updateService?.GetCurrentVersion()?.ToString() ?? "?";
+        return $"Текущая версия: {current}";
+    }
+
+    public async Task<string> CheckForUpdatesAsync(CancellationToken ct = default)
+    {
+        if (_updateService is null) return "Сервис обновления недоступен.";
+        var info = await _updateService.CheckAsync(ct).ConfigureAwait(false);
+        if (info is null)
+        {
+            return $"Обновлений нет. Текущая версия: {_updateService.GetCurrentVersion()}.";
+        }
+        await _telegramNotifier.NotifyUpdateAvailableAsync(info, ct).ConfigureAwait(false);
+        return $"Доступна версия {info.Tag}. Уведомление отправлено.";
+    }
+
+    public async Task<string> StartInstallUpdateAsync(string tag, CancellationToken ct = default)
+    {
+        if (_updateService is null) return "Сервис обновления недоступен.";
+        try
+        {
+            await _updateService.StartInstallAsync(tag, ct).ConfigureAwait(false);
+            return $"Запускаю обновление до {tag}. Сервис будет перезапущен.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "StartInstallUpdateAsync failed for {Tag}.", tag);
+            return $"Ошибка запуска обновления: {ex.Message}";
+        }
+    }
+
+    public async Task<IReadOnlyList<ReleaseDto>> GetRollbackVersionsAsync(CancellationToken ct = default)
+    {
+        if (_updateService is null) return Array.Empty<ReleaseDto>();
+        return await _updateService.GetAvailableVersionsForRollbackAsync(top: 10, ct).ConfigureAwait(false);
+    }
+
+    public async Task<string> StartRollbackAsync(string tag, CancellationToken ct = default)
+    {
+        if (_updateService is null) return "Сервис обновления недоступен.";
+        try
+        {
+            await _updateService.StartRollbackAsync(tag, ct).ConfigureAwait(false);
+            return $"Запускаю откат к версии {tag}. Сервис будет перезапущен.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "StartRollbackAsync failed for {Tag}.", tag);
+            return $"Ошибка отката: {ex.Message}";
+        }
     }
 }

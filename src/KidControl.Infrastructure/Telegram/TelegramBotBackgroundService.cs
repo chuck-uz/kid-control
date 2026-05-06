@@ -149,6 +149,12 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                 await SendIntervalsFolderAsync(chatId).ConfigureAwait(false);
                 return;
             }
+
+            if (normalized == "📦 Версия")
+            {
+                await SendVersionFolderAsync(chatId).ConfigureAwait(false);
+                return;
+            }
         }
     }
 
@@ -294,7 +300,45 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                         .ConfigureAwait(false);
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
                     return;
+                case "update_check":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Проверяю обновления…").ConfigureAwait(false);
+                    var checkResult = await _orchestrator.CheckForUpdatesAsync().ConfigureAwait(false);
+                    await _botClient.SendMessage(chatId: chatId, text: checkResult).ConfigureAwait(false);
+                    return;
+
+                case "update_rollback_menu":
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id).ConfigureAwait(false);
+                    await SendRollbackMenuAsync(chatId).ConfigureAwait(false);
+                    return;
+
                 default:
+                    // Dynamic callbacks: update_install_<tag>, update_later_<tag>, update_rollback_<tag>
+                    var data = callbackQuery.Data ?? string.Empty;
+
+                    if (data.StartsWith("update_install_", StringComparison.Ordinal))
+                    {
+                        var tag = data["update_install_".Length..];
+                        await _botClient.AnswerCallbackQuery(callbackQuery.Id, $"Запускаю обновление {tag}…").ConfigureAwait(false);
+                        var installResult = await _orchestrator.StartInstallUpdateAsync(tag).ConfigureAwait(false);
+                        await _botClient.SendMessage(chatId: chatId, text: installResult).ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (data.StartsWith("update_later_", StringComparison.Ordinal))
+                    {
+                        await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Хорошо, напомню позже.").ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (data.StartsWith("update_rollback_", StringComparison.Ordinal))
+                    {
+                        var tag = data["update_rollback_".Length..];
+                        await _botClient.AnswerCallbackQuery(callbackQuery.Id, $"Запускаю откат к {tag}…").ConfigureAwait(false);
+                        var rollbackResult = await _orchestrator.StartRollbackAsync(tag).ConfigureAwait(false);
+                        await _botClient.SendMessage(chatId: chatId, text: rollbackResult).ConfigureAwait(false);
+                        return;
+                    }
+
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Неизвестное действие.", true)
                         .ConfigureAwait(false);
                     return;
@@ -308,7 +352,7 @@ public sealed class TelegramBotBackgroundService : BackgroundService
         {
             new KeyboardButton[] { "📊 Статус", "➕ Время" },
             new KeyboardButton[] { "🎮 Приложение", "💻 Компьютер" },
-            new KeyboardButton[] { "⚙️ Интервалы" }
+            new KeyboardButton[] { "⚙️ Интервалы", "📦 Версия" }
         })
         {
             ResizeKeyboard = true,
@@ -319,6 +363,53 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                 chatId: chatId,
                 text: "Управление KidControl:",
                 replyMarkup: keyboard)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendVersionFolderAsync(long chatId)
+    {
+        var text = _orchestrator.GetVersionInfoText();
+        var inline = new InlineKeyboardMarkup(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🔍 Проверить обновления", "update_check"),
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("⏪ Откат к прошлой версии", "update_rollback_menu"),
+            }
+        });
+
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: text,
+                replyMarkup: inline)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendRollbackMenuAsync(long chatId)
+    {
+        var releases = await _orchestrator.GetRollbackVersionsAsync().ConfigureAwait(false);
+        if (releases.Count == 0)
+        {
+            await _botClient.SendMessage(
+                    chatId: chatId,
+                    text: "Нет доступных версий для отката (GitHub releases не найдены или у них нет ассета установщика).")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var buttons = releases.Select(r =>
+            new[] { InlineKeyboardButton.WithCallbackData(
+                $"v{r.Version} ({r.PublishedAt.ToLocalTime():dd.MM.yy}){(r.IsPrerelease ? " [pre]" : "")}",
+                $"update_rollback_{r.Tag}") }).ToArray();
+
+        var inline = new InlineKeyboardMarkup(buttons);
+        await _botClient.SendMessage(
+                chatId: chatId,
+                text: "Выберите версию для отката:",
+                replyMarkup: inline)
             .ConfigureAwait(false);
     }
 
