@@ -33,6 +33,50 @@ public sealed class InstallerForm : Form
     private const string AssetServiceHost = "KidControl.ServiceHost.exe";
     private const string AssetUiHost = "KidControl.UiHost.exe";
 
+    #region agent log
+    private static void AgentDebugLog(string runId, string hypothesisId, string location, string message, object data)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                sessionId = "9d75ca",
+                runId,
+                hypothesisId,
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            });
+            var line = payload + Environment.NewLine;
+            var paths = new[]
+            {
+                @"C:\kid-control\kid-control\debug-9d75ca.log",
+                Path.Combine(ProgramDataPath, "debug-9d75ca.log"),
+                Path.Combine(Path.GetTempPath(), "KidControl-debug-9d75ca.log")
+            };
+
+            foreach (var path in paths)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.AppendAllText(path, line);
+                    return;
+                }
+                catch
+                {
+                    // Try the next path.
+                }
+            }
+        }
+        catch
+        {
+            // Debug logging must never affect installation.
+        }
+    }
+    #endregion
+
     /// <summary>RmShutdown часто возвращает ERROR_ACCESS_DENIED (5) в Program Files — не спамим вызовами.</summary>
     private bool _skipRestartManager;
 
@@ -1566,6 +1610,14 @@ public sealed class InstallerForm : Form
 
     private void Run(string fileName, string arguments, bool throwOnError)
     {
+        #region agent log
+        AgentDebugLog("post-fix-installer-hang", "I1", "InstallerForm.cs:Run", "External command starting", new
+        {
+            fileName,
+            arguments,
+            throwOnError
+        });
+        #endregion
         using var process = Process.Start(new ProcessStartInfo
         {
             FileName = fileName,
@@ -1575,9 +1627,47 @@ public sealed class InstallerForm : Form
             RedirectStandardError = true,
             RedirectStandardOutput = true
         });
-        process?.WaitForExit(10000);
+        var exited = process?.WaitForExit(10000) ?? false;
+        if (process is not null && !exited)
+        {
+            #region agent log
+            AgentDebugLog("post-fix-installer-hang", "I1", "InstallerForm.cs:Run", "External command timed out", new
+            {
+                fileName,
+                arguments,
+                processId = process.Id
+            });
+            #endregion
+            try
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(3000);
+            }
+            catch
+            {
+                // Best effort; the caller decides whether timeout is fatal.
+            }
+
+            if (throwOnError)
+            {
+                throw new TimeoutException($"{fileName} timed out after 10000 ms.");
+            }
+
+            return;
+        }
+
         var stderr = process?.StandardError.ReadToEnd().Trim() ?? string.Empty;
         var stdout = process?.StandardOutput.ReadToEnd().Trim() ?? string.Empty;
+        #region agent log
+        AgentDebugLog("post-fix-installer-hang", "I1", "InstallerForm.cs:Run", "External command completed", new
+        {
+            fileName,
+            arguments,
+            exitCode = process?.ExitCode,
+            stderrLength = stderr.Length,
+            stdoutLength = stdout.Length
+        });
+        #endregion
 
         if (throwOnError && (process is null || process.ExitCode != 0))
         {
@@ -1690,6 +1780,16 @@ public sealed class InstallerForm : Form
     {
         Directory.CreateDirectory(ProgramFilesPath);
 
+        #region agent log
+        AgentDebugLog("post-fix-installer-hang", "I1,I2,I3,I4", "InstallerForm.cs:PerformBinaryUpdate", "Binary update started", new
+        {
+            tempPath,
+            programFilesPath = ProgramFilesPath,
+            servicePayloadExists = File.Exists(Path.Combine(tempPath, AssetServiceHost)),
+            uiPayloadExists = File.Exists(Path.Combine(tempPath, AssetUiHost))
+        });
+        #endregion
+
         StopAndDeleteService(ServiceName);
         KillAllKidControlProcessesBlockingUninstall();
         Thread.Sleep(500);
@@ -1703,6 +1803,13 @@ public sealed class InstallerForm : Form
         File.Copy(Path.Combine(tempPath, AssetServiceHost), Path.Combine(ProgramFilesPath, AssetServiceHost), overwrite: true);
         File.Copy(Path.Combine(tempPath, AssetUiHost),      Path.Combine(ProgramFilesPath, AssetUiHost),      overwrite: true);
         log("Бинарники заменены.");
+        #region agent log
+        AgentDebugLog("post-fix-installer-hang", "I2,I3", "InstallerForm.cs:PerformBinaryUpdate", "Binaries copied", new
+        {
+            serviceInstalled = File.Exists(Path.Combine(ProgramFilesPath, AssetServiceHost)),
+            uiInstalled = File.Exists(Path.Combine(ProgramFilesPath, AssetUiHost))
+        });
+        #endregion
 
         EnsureProgramDataLogsDirectory();
         EnsureProgramDataFolderProtected();
@@ -1710,6 +1817,12 @@ public sealed class InstallerForm : Form
         RegisterService();
         StartService();
         log("Служба перезапущена.");
+        #region agent log
+        AgentDebugLog("post-fix-installer-hang", "I3,I4", "InstallerForm.cs:PerformBinaryUpdate", "Service restart commands completed", new
+        {
+            serviceName = ServiceName
+        });
+        #endregion
 
         LockInstallFolderAcl();
 
@@ -1719,6 +1832,12 @@ public sealed class InstallerForm : Form
 
         ProtectServiceRegistryKey();
         log("Защита реестра обновлена.");
+        #region agent log
+        AgentDebugLog("post-fix-installer-hang", "I1,I2,I3,I4", "InstallerForm.cs:PerformBinaryUpdate", "Binary update completed", new
+        {
+            serviceName = ServiceName
+        });
+        #endregion
     }
 
     // ─── Silent update / rollback ────────────────────────────────────────────

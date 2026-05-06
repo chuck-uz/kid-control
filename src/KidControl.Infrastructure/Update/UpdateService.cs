@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using KidControl.Application.Interfaces;
 using KidControl.Application.Models;
 using KidControl.Infrastructure.Configuration;
@@ -21,6 +22,54 @@ public sealed class UpdateService : IUpdateService
     private readonly TelegramConfig _telegram;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<UpdateService> _logger;
+    private int _updateLaunchStarted;
+
+    #region agent log
+    private static void AgentDebugLog(string runId, string hypothesisId, string location, string message, object data)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                sessionId = "9d75ca",
+                runId,
+                hypothesisId,
+                location,
+                message,
+                data,
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            });
+            var line = payload + Environment.NewLine;
+            var paths = new[]
+            {
+                @"C:\kid-control\kid-control\debug-9d75ca.log",
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "KidControl",
+                    "debug-9d75ca.log"),
+                Path.Combine(Path.GetTempPath(), "KidControl-debug-9d75ca.log")
+            };
+
+            foreach (var path in paths)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                    File.AppendAllText(path, line);
+                    return;
+                }
+                catch
+                {
+                    // Try the next path.
+                }
+            }
+        }
+        catch
+        {
+            // Debug logging must never affect the service.
+        }
+    }
+    #endregion
 
     public UpdateService(
         GitHubReleaseClient client,
@@ -125,58 +174,95 @@ public sealed class UpdateService : IUpdateService
 
     private async Task DownloadAndLaunchAsync(string tag, string kind, CancellationToken ct)
     {
-        var release = await _client.GetReleaseByTagAsync(_config.Repository, tag, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Релиз с тегом {tag} не найден на GitHub.");
-        var asset = release.Assets.FirstOrDefault(a =>
-            string.Equals(a.Name, _config.AssetName, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"В релизе {tag} нет ассета {_config.AssetName}.");
-
-        var stageDir = Path.Combine(UpdateStagingRoot, tag);
-        Directory.CreateDirectory(stageDir);
-        var installerPath = Path.Combine(stageDir, _config.AssetName);
-
-        _logger.LogInformation("Update: downloading {Tag} → {Path}", tag, installerPath);
-        await _client.DownloadAssetAsync(asset.BrowserDownloadUrl, installerPath, progress: null, ct).ConfigureAwait(false);
-
-        // Persist a marker so the new ServiceHost (post-restart) can announce success/failure.
-        _marker.Write(new UpdateMarker
+        if (Interlocked.Exchange(ref _updateLaunchStarted, 1) == 1)
         {
-            Kind = kind,
-            TargetTag = tag,
-            AdminChatIds = _telegram.AdminChatIds,
-            StartedUtc = DateTimeOffset.UtcNow,
-            PreviousVersion = GetCurrentVersion().ToString(),
-        });
-
-        // Spawn the installer. /silent means "no UI, no MessageBox". /update or /rollback both
-        // trigger the same RunSilentUpdate() flow on the installer side.
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = installerPath,
-            Arguments = kind == "rollback" ? "/silent /rollback" : "/silent /update",
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WorkingDirectory = stageDir,
-        };
+            throw new InvalidOperationException("Обновление уже запущено. Дождитесь завершения установки и перезапуска службы.");
+        }
 
         try
         {
-            Process.Start(startInfo);
+            var release = await _client.GetReleaseByTagAsync(_config.Repository, tag, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Релиз с тегом {tag} не найден на GitHub.");
+            var asset = release.Assets.FirstOrDefault(a =>
+                string.Equals(a.Name, _config.AssetName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"В релизе {tag} нет ассета {_config.AssetName}.");
+
+            var runId = $"run-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}";
+            var stageDir = Path.Combine(UpdateStagingRoot, tag, runId);
+            Directory.CreateDirectory(stageDir);
+            var installerPath = Path.Combine(stageDir, _config.AssetName);
+
+            #region agent log
+            AgentDebugLog("post-fix-update-lock", "H1,H2,H3,H4", "UpdateService.cs:DownloadAndLaunchAsync", "Update launch requested", new
+            {
+                tag,
+                kind,
+                stageDir,
+                installerPath,
+                installerExistsBeforeDownload = File.Exists(installerPath),
+                installerLengthBeforeDownload = File.Exists(installerPath) ? new FileInfo(installerPath).Length : 0,
+                assetUrlPresent = !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl)
+            });
+            #endregion
+
+            _logger.LogInformation("Update: downloading {Tag} → {Path}", tag, installerPath);
+            await _client.DownloadAssetAsync(asset.BrowserDownloadUrl, installerPath, progress: null, ct).ConfigureAwait(false);
+
+            #region agent log
+            AgentDebugLog("post-fix-update-lock", "H1,H2,H3,H4", "UpdateService.cs:DownloadAndLaunchAsync", "Installer asset downloaded", new
+            {
+                installerPath,
+                installerExistsAfterDownload = File.Exists(installerPath),
+                installerLengthAfterDownload = File.Exists(installerPath) ? new FileInfo(installerPath).Length : 0
+            });
+            #endregion
+
+            // Persist a marker so the new ServiceHost (post-restart) can announce success/failure.
+            _marker.Write(new UpdateMarker
+            {
+                Kind = kind,
+                TargetTag = tag,
+                AdminChatIds = _telegram.AdminChatIds,
+                StartedUtc = DateTimeOffset.UtcNow,
+                PreviousVersion = GetCurrentVersion().ToString(),
+            });
+
+            // Spawn the installer. /silent means "no UI, no MessageBox". /update or /rollback both
+            // trigger the same RunSilentUpdate() flow on the installer side.
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = installerPath,
+                Arguments = kind == "rollback" ? "/silent /rollback" : "/silent /update",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = stageDir,
+            };
+
+            var process = Process.Start(startInfo);
+            #region agent log
+            AgentDebugLog("post-fix-update-lock", "H4", "UpdateService.cs:DownloadAndLaunchAsync", "Installer process started", new
+            {
+                installerPath,
+                processStarted = process is not null,
+                processId = process?.Id,
+                processHasExited = process?.HasExited
+            });
+            #endregion
             _logger.LogInformation("Update: installer spawned ({Kind} {Tag}). Stopping service for replacement.", kind, tag);
+
+            // Give the spawned process a head start before we exit the host.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+                _lifetime.StopApplication();
+            });
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogError(ex, "Update: failed to spawn installer.");
+            Interlocked.Exchange(ref _updateLaunchStarted, 0);
             _marker.Delete();
             throw;
         }
-
-        // Give the spawned process a head start before we exit the host.
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-            _lifetime.StopApplication();
-        });
     }
 
     private static bool TryParseTag(string tag, out Version version)
