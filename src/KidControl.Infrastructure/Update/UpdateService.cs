@@ -89,8 +89,75 @@ public sealed class UpdateService : IUpdateService
 
     public Version GetCurrentVersion()
     {
+        // Single-file ServiceHost often reports Assembly.GetName().Version as 0.0.0.0; MinVer writes the real version to ProductVersion.
+        if (TryGetVersionFromHostExecutable(out var fromExe))
+        {
+            return fromExe;
+        }
+
         var asm = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
         return asm.GetName().Version ?? new Version(0, 0, 0, 0);
+    }
+
+    private static bool TryGetVersionFromHostExecutable(out Version version)
+    {
+        version = new Version(0, 0, 0, 0);
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return false;
+            }
+
+            var info = FileVersionInfo.GetVersionInfo(path);
+            if (TryParseVersionLabel(info.ProductVersion, out version))
+            {
+                return true;
+            }
+
+            return TryParseVersionLabel(info.FileVersion, out version);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Parses MinVer/semver-style labels (e.g. 1.0.4 or 1.0.4+sha, 0.0.0-alpha.1+sha) into <see cref="Version"/> for comparison with release tags.</summary>
+    private static bool TryParseVersionLabel(string? label, out Version version)
+    {
+        version = new Version(0, 0, 0, 0);
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return false;
+        }
+
+        var s = label.Trim().TrimStart('v', 'V');
+        var plus = s.IndexOf('+', StringComparison.Ordinal);
+        if (plus >= 0)
+        {
+            s = s[..plus];
+        }
+
+        if (Version.TryParse(s, out var direct))
+        {
+            version = direct;
+            return true;
+        }
+
+        var dash = s.IndexOf('-', StringComparison.Ordinal);
+        if (dash > 0)
+        {
+            var core = s[..dash];
+            if (Version.TryParse(core, out var stablePrefix))
+            {
+                version = stablePrefix;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public async Task<UpdateInfoDto?> CheckAsync(CancellationToken ct = default)
