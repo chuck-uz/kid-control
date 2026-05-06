@@ -15,7 +15,6 @@
   <ItemGroup>
     <EmbeddedResource Include="Artifacts\KidControl.ServiceHost.exe" LogicalName="Payload.KidControl.ServiceHost.exe" />
     <EmbeddedResource Include="Artifacts\KidControl.UiHost.exe" LogicalName="Payload.KidControl.UiHost.exe" />
-    <EmbeddedResource Include="Artifacts\KidControl.Unlocker.exe" LogicalName="Payload.KidControl.Unlocker.exe" />
   </ItemGroup>
 
   <!-- Fail fast if installer is built without payload (prevents silent empty single-file exe). -->
@@ -23,13 +22,11 @@
     <PropertyGroup>
       <_Svc>$(MSBuildProjectDirectory)\Artifacts\KidControl.ServiceHost.exe</_Svc>
       <_Ui>$(MSBuildProjectDirectory)\Artifacts\KidControl.UiHost.exe</_Ui>
-      <_Unl>$(MSBuildProjectDirectory)\Artifacts\KidControl.Unlocker.exe</_Unl>
     </PropertyGroup>
     <Error
       Text="Installer payload missing. From repo root run: powershell -ExecutionPolicy Bypass -File .\build.ps1 — it fills src\KidControl.Installer\Artifacts\. Expected: $(_Svc)"
       Condition="!Exists('$(_Svc)')" />
     <Error Text="Missing $(_Ui)" Condition="!Exists('$(_Ui)')" />
-    <Error Text="Missing $(_Unl)" Condition="!Exists('$(_Unl)')" />
   </Target>
 
 </Project>

@@ -265,6 +265,20 @@ public sealed class SessionOrchestrator
         return "Таймер сброшен на текущий игровой интервал.";
     }
 
+    public async Task<string> ResetToPlayStartAsync()
+    {
+        SessionStateDto state;
+        lock (_sync)
+        {
+            _session.ResetToPlayStart();
+            state = ToDto();
+        }
+
+        await _uiNotifier.NotifyStateChangedAsync(state).ConfigureAwait(false);
+        SaveStateSnapshot();
+        return "Таймеры сброшены. Запущен игровой интервал.";
+    }
+
     public void BeginCustomRuleInput(long chatId)
     {
         lock (_sync)

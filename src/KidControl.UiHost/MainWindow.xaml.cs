@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows;
@@ -19,13 +20,17 @@ public partial class MainWindow : Window
     private const int SmYVirtualScreen = 77;
     private const int SmCxVirtualScreen = 78;
     private const int SmCyVirtualScreen = 79;
-    private const double WidgetWidth = 260;
-    private const double WidgetHeight = 140;
+    private const int DwmaSystemBackdropType = 38;
+    private const int DwmsbtMainWindow = 2;
+    private const int DwmsbtTransientWindow = 3;
+    private const double WidgetWidth = 280;
+    private const double WidgetHeight = 96;
     private Storyboard? _blockedTimerStoryboard;
 
     private readonly MainViewModel _viewModel;
     private bool _isTransitioning;
     private bool _pendingBlockedState;
+    private Storyboard? _timerTextPulseStoryboard;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -35,6 +40,10 @@ public partial class MainWindow : Window
 
         Loaded += (_, _) =>
         {
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            {
+                TryEnableSystemBackdrop();
+            }
             MoveWidgetToCorner();
             StartBackgroundParticles();
             UpdateWidgetProgressRing();
@@ -52,7 +61,12 @@ public partial class MainWindow : Window
             {
                 Dispatcher.Invoke(UpdateWidgetProgressRing);
             }
+            else if (args.PropertyName == nameof(MainViewModel.TimeRemainingStr))
+            {
+                Dispatcher.Invoke(AnimateTimerTextPulse);
+            }
         };
+
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -68,8 +82,8 @@ public partial class MainWindow : Window
 
     private void UpdateWidgetProgressRing()
     {
-        const double radius = 45;
-        var center = new Point(49, 49);
+        const double radius = 22.5;
+        var center = new Point(25, 25);
         var progress = Math.Clamp(_viewModel.ProgressPercent / 100d, 0, 1);
         if (progress <= 0.001)
         {
@@ -304,6 +318,57 @@ public partial class MainWindow : Window
         star.BeginAnimation(UIElement.OpacityProperty, opacityAnimation, HandoffBehavior.SnapshotAndReplace);
     }
 
+    private void AnimateTimerTextPulse()
+    {
+        if (WidgetTimerText is null)
+        {
+            return;
+        }
+
+        if (_timerTextPulseStoryboard is null)
+        {
+            var pulse = new DoubleAnimation
+            {
+                From = 0.85,
+                To = 1.0,
+                Duration = TimeSpan.FromMilliseconds(180),
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            };
+
+            _timerTextPulseStoryboard = new Storyboard();
+            _timerTextPulseStoryboard.Children.Add(pulse);
+            Storyboard.SetTarget(pulse, WidgetTimerText);
+            Storyboard.SetTargetProperty(pulse, new PropertyPath(UIElement.OpacityProperty));
+        }
+
+        _timerTextPulseStoryboard.Begin(this, true);
+    }
+
+    [SupportedOSPlatform("windows10.0.22000.0")]
+    private void TryEnableSystemBackdrop()
+    {
+        try
+        {
+            var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            // Prefer Acrylic-like transient backdrop, fallback to Mica.
+            var backdrop = DwmsbtTransientWindow;
+            if (DwmSetWindowAttribute(handle, DwmaSystemBackdropType, ref backdrop, Marshal.SizeOf<int>()) != 0)
+            {
+                backdrop = DwmsbtMainWindow;
+                _ = DwmSetWindowAttribute(handle, DwmaSystemBackdropType, ref backdrop, Marshal.SizeOf<int>());
+            }
+        }
+        catch
+        {
+            // Best effort only: standard translucent brush still renders fine.
+        }
+    }
+
     public Task<string> CaptureScreenshotAsync()
     {
         return Dispatcher.InvokeAsync(CaptureScreenshotOnUiThread).Task;
@@ -339,4 +404,7 @@ public partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 }

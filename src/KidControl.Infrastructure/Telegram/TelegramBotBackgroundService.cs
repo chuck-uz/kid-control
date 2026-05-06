@@ -207,6 +207,10 @@ public sealed class TelegramBotBackgroundService : BackgroundService
                     await _orchestrator.ResetSessionTimeAsync().ConfigureAwait(false);
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id, "Таймер сброшен").ConfigureAwait(false);
                     return;
+                case "folder_status_reset_timer":
+                    var resetMsg = await _orchestrator.ResetToPlayStartAsync().ConfigureAwait(false);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, resetMsg).ConfigureAwait(false);
+                    return;
                 case "folder_app_pause":
                     await _orchestrator.PauseSystem().ConfigureAwait(false);
                     await UpdateApplicationFolderAsync(callbackQuery).ConfigureAwait(false);
@@ -326,6 +330,10 @@ public sealed class TelegramBotBackgroundService : BackgroundService
             {
                 InlineKeyboardButton.WithCallbackData("🚫 Блок", "folder_status_block"),
                 InlineKeyboardButton.WithCallbackData("✅ Разблок", "folder_status_unblock")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🔄 Сбросить таймеры", "folder_status_reset_timer")
             },
             new[]
             {

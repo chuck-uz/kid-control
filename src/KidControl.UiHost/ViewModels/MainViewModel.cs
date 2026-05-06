@@ -12,9 +12,12 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly object _timeSync = new();
     private TimeSpan _lastKnownRemaining = TimeSpan.Zero;
     private bool _hasSnapshot;
+    private string _lastStatus = "Active";
 
     [ObservableProperty]
     private string timeRemaining = "00:00:00";
+
+    public string TimeRemainingStr => TimeRemaining;
 
     [ObservableProperty]
     private bool isBlocked;
@@ -48,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
                 {
                     _lastKnownRemaining = state.TimeRemaining < TimeSpan.Zero ? TimeSpan.Zero : state.TimeRemaining;
                     _hasSnapshot = true;
+                    _lastStatus = state.Status ?? string.Empty;
                 }
 
                 TimeRemaining = _lastKnownRemaining.ToString(@"hh\:mm\:ss");
@@ -63,6 +67,11 @@ public sealed partial class MainViewModel : ObservableObject
                 ProgressPercent = percent;
             });
         };
+    }
+
+    partial void OnTimeRemainingChanged(string value)
+    {
+        OnPropertyChanged(nameof(TimeRemainingStr));
     }
 
     private void ApplyLocalCountdownTick()

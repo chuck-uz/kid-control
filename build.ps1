@@ -125,21 +125,17 @@ New-Item -Path $installerPublishArtifacts -ItemType Directory -Force | Out-Null
 
 $serviceOut = Join-Path $publishDir "ServiceHost"
 $uiOut = Join-Path $publishDir "UiHost"
-$unlockerOut = Join-Path $publishDir "Unlocker"
 
 Invoke-DotnetPublish "$root/src/KidControl.ServiceHost/KidControl.ServiceHost.csproj" "$serviceOut"
 Invoke-DotnetPublish "$root/src/KidControl.UiHost/KidControl.UiHost.csproj" "$uiOut"
-Invoke-DotnetPublish "$root/src/KidControl.Unlocker/KidControl.Unlocker.csproj" "$unlockerOut"
 
 Copy-Item "$serviceOut/KidControl.ServiceHost.exe" "$installerArtifacts/KidControl.ServiceHost.exe" -Force
 Copy-Item "$uiOut/KidControl.UiHost.exe" "$installerArtifacts/KidControl.UiHost.exe" -Force
-Copy-Item "$unlockerOut/KidControl.Unlocker.exe" "$installerArtifacts/KidControl.Unlocker.exe" -Force
 
 Invoke-DotnetPublish "$root/src/KidControl.Installer/KidControl.Installer.csproj" "$installerPublishDir"
 
 Copy-Item "$serviceOut/KidControl.ServiceHost.exe" "$installerPublishArtifacts/KidControl.ServiceHost.exe" -Force
 Copy-Item "$uiOut/KidControl.UiHost.exe" "$installerPublishArtifacts/KidControl.UiHost.exe" -Force
-Copy-Item "$unlockerOut/KidControl.Unlocker.exe" "$installerPublishArtifacts/KidControl.Unlocker.exe" -Force
 
 try {
     if (Test-Path $installerStableDir) {
@@ -156,7 +152,6 @@ try {
     Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe") (Join-Path $installerStableDir "KidControl.Installer.exe") -Force
     Copy-Item "$installerPublishArtifacts/KidControl.ServiceHost.exe" "$stableArtifacts/KidControl.ServiceHost.exe" -Force
     Copy-Item "$installerPublishArtifacts/KidControl.UiHost.exe" "$stableArtifacts/KidControl.UiHost.exe" -Force
-    Copy-Item "$installerPublishArtifacts/KidControl.Unlocker.exe" "$stableArtifacts/KidControl.Unlocker.exe" -Force
     Write-Host "Also copied to stable folder: $installerStableDir"
 
     New-Item -Path $installerMirrorDir -ItemType Directory -Force | Out-Null
@@ -165,7 +160,6 @@ try {
     Copy-Item (Join-Path $installerPublishDir "KidControl.Installer.exe") (Join-Path $installerMirrorDir "KidControl.Installer.exe") -Force
     Copy-Item "$installerPublishArtifacts/KidControl.ServiceHost.exe" "$mirrorArtifacts/KidControl.ServiceHost.exe" -Force
     Copy-Item "$installerPublishArtifacts/KidControl.UiHost.exe" "$mirrorArtifacts/KidControl.UiHost.exe" -Force
-    Copy-Item "$installerPublishArtifacts/KidControl.Unlocker.exe" "$mirrorArtifacts/KidControl.Unlocker.exe" -Force
     Write-Host "Also mirrored to: $installerMirrorDir"
 }
 catch {

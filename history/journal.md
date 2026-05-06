@@ -915,6 +915,38 @@
 - **Что сделано (Telegram/UI/Installer):** В `TelegramBotBackgroundService` добавлены кнопки `🌙 Ночной режим`, пресеты `21:00-07:00`, `22:00-08:00`, и `✍️ Свой вариант` (`ЧЧ:ММ-ЧЧ:ММ`); в `MainWindow` закреплена ночная фраза «Спокойной ночи. Увидимся завтра!» на полноэкранном темном блоке; в `InstallerForm` стартовый `session_state.json` теперь сразу содержит `nightModeStart/nightModeEnd`.
 - **Результат:** Ночной режим управляется из Telegram, применяется без рестарта службы, сохраняется между перезагрузками и не перезаписывается конфигом при старте.
 
+## 2026-05-06 17:08
+- **Промт:** Реализовать механизм защиты от удаления и завершения процессов (Watchdog + ACL + реестр + критический процесс + уведомления).
+- **Что сделано:**
+  1. **Двойной Watchdog**: создан `src/KidControl.UiHost/Services/ServiceWatchdog.cs` — каждые 5 с проверяет `Process.GetProcessesByName("KidControl.ServiceHost")`; при отсутствии запускает `schtasks /Run /TN "KidControl.Service.Restart"`. Зарегистрирован в `App.xaml.cs` (Start/Stop в OnStartup/OnExit). В инсталляторе добавлена задача `KidControl.Service.Restart` (SYSTEM, ONDEMAND, `sc.exe start KidControlv0.4`).
+  2. **TamperDetector**: создан `src/KidControl.Infrastructure/Windows/TamperDetector.cs` — `FileSystemWatcher` на `AppContext.BaseDirectory` для удаления/переименования `.exe`; при срабатывании отправляет `⚠️ Внимание! Зафиксирована попытка взлома или удаления системы контроля!` через `BroadcastAsync`. Анти-спам 60 с. Зарегистрирован в `InfrastructureModule`, запускается первым в `Worker.ExecuteAsync`.
+  3. **Критический процесс**: добавлен `src/KidControl.Infrastructure/Configuration/ProtectionConfig.cs` с секцией `Protection.CriticalProcess` (по умолчанию `false`). В `Program.cs` добавлен P/Invoke `ntdll!RtlSetProcessIsCritical` — включается только при `CriticalProcess: true`; при включении убийство сервиса вызывает BSOD.
+  4. **ACL на папку установки**: в `InstallerForm` добавлены `LockInstallFolderAcl()` (icacls: SYSTEM Full, Admins/Users ReadOnly) вызываемый после копирования файлов, и `UnlockInstallFolderAcl()` вызываемый перед удалением в Uninstall.
+  5. **Скрытие из списка программ**: добавлен `HideFromUninstallList()` — записывает `SystemComponent=1`, `NoRemove=1`, `NoModify=1` в `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KidControl`. При удалении — `RemoveFromUninstallList()`.
+  6. **Защита реестра службы**: добавлены `ProtectServiceRegistryKey()` (SYSTEM: FullControl, Admins: ReadKey, наследование отключено) после `RegisterService()` и `UnprotectServiceRegistryKey()` перед `StopAndDeleteService()`.
+- **Сборка**: `dotnet build KidControl.sln -c Release` — **успешно, 0 ошибок, 0 предупреждений**.
+- **Следующий шаг:** Пересобрать installer через `build.ps1` и проверить установку на тестовой машине, затем опционально включить `CriticalProcess: true` в `appsettings.json` после стабилизации.
+
+## 2026-05-06 17:00
+- **Промт:** Инициализировать текущий проект.
+- **Что сделано:**
+  - Проведена полная разведка состояния проекта: структура, изменённые файлы, история журнала.
+  - Зафиксированы незакоммиченные изменения в `KidControl.UiHost`:
+    - Новый `Services/VoiceNotifier.cs` — TTS через `System.Speech.Synthesis`; голосовое предупреждение «Осталось 5 минут» и хоткей `Ctrl+Shift+V` для теста.
+    - `ViewModels/MainViewModel.cs` — интеграция `VoiceNotifier`, локальный отсчёт таймера, 5-минутный триггер.
+    - `App.xaml.cs` — регистрация `VoiceNotifier` и `UiCommandPipeServer` в DI, поддержка `--voice-test` аргумента.
+    - `MainWindow.xaml.cs` — хоткей `Ctrl+Shift+V`, анимация пульсации таймера виджета.
+    - `MainWindow.xaml` — XAML актуален без изменений по структуре.
+    - `KidControl.UiHost.csproj` — добавлен пакет `System.Speech 10.0.6`.
+  - Выполнена полная сборка `KidControl.sln -c Release` — **успешно, 0 ошибок, 0 предупреждений**.
+  - Прогнаны все тесты — обнаружен 1 упавший тест в `KidControl.Application.Tests`: ожидалось `15m` после `/block`, а дефолтный интервал отдыха изменился на 20 мин (правило 40/20).
+  - Тест исправлен: `TimeSpan.FromMinutes(15)` → `TimeSpan.FromMinutes(20)`.
+  - Повторный прогон тестов — **8/8 пройдено**.
+- **Результат:** Проект полностью инициализирован, сборка чистая, тесты зелёные.
+- **Текущее состояние незакоммиченных изменений:**
+  - `src/KidControl.UiHost/` — голосовые уведомления (VoiceNotifier), хоткей теста, пульсация таймера виджета.
+- **Следующий шаг:** Продолжить разработку или сделать коммит текущих изменений.
+
 ## 2026-04-21 13:00
 - **Промт:** Добавить скриншот экрана через Telegram: кнопка в `📊 Статус`, запрос к UiHost через pipe, отправка фото, удаление временного файла, анти-спам и корректная ошибка при недоступном UI.
 - **Что сделано (UiHost):** Добавлен `UiCommandPipeServer` (`KidControlUiCommandPipe`) с командой `GET_SCREENSHOT`; в `MainWindow` реализован захват виртуального экрана на UI-потоке через `CopyFromScreen` и сохранение JPG с quality=65 в `%TEMP%`.
