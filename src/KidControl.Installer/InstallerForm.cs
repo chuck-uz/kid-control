@@ -29,6 +29,10 @@ public sealed class InstallerForm : Form
     private static readonly string ProgramFilesPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "KidControl");
     private static readonly string ProgramDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "KidControl");
 
+    private const string GitHubRepo = "chuck-uz/kid-control";
+    private const string AssetServiceHost = "KidControl.ServiceHost.exe";
+    private const string AssetUiHost = "KidControl.UiHost.exe";
+
     /// <summary>RmShutdown часто возвращает ERROR_ACCESS_DENIED (5) в Program Files — не спамим вызовами.</summary>
     private bool _skipRestartManager;
 
@@ -36,12 +40,12 @@ public sealed class InstallerForm : Form
     private readonly Panel _contentPanel = new() { Left = 230, Top = 0, Width = 670, Height = 640, BackColor = Theme.BackgroundLight };
     private readonly StepNavItem[] _stepNav =
     {
-        new() { Text = "1. Приветствие", Top = 120, Left = 16 },
-        new() { Text = "2. Telegram", Top = 166, Left = 16 },
-        new() { Text = "3. Опции", Top = 212, Left = 16 },
-        new() { Text = "4. Установка/Удаление", Top = 258, Left = 16 }
+        new() { Text = "1. Управление", Top = 120, Left = 16 },
+        new() { Text = "2. Telegram",   Top = 166, Left = 16 },
+        new() { Text = "3. Установка",  Top = 212, Left = 16 }
     };
-    private readonly Panel[] _steps = new Panel[4];
+    private readonly Panel[] _steps = new Panel[3];
+    private bool _isInstalled;
 
     private readonly AccentButton _backButton = new() { Text = "Назад", Width = 110, Left = 250, Top = 560, AccentColor = Color.FromArgb(94, 94, 94) };
     private readonly AccentButton _nextButton = new() { Text = "Далее", Width = 110, Left = 370, Top = 560 };
@@ -52,8 +56,13 @@ public sealed class InstallerForm : Form
     private readonly AccentButton _checkTelegramButton = new() { Text = "Проверить", Left = 28, Top = 292, Width = 140 };
     private readonly Label _telegramStatus = new() { Left = 186, Top = 304, Width = 420, AutoEllipsis = true, Font = new Font(InstallerFonts.MessageFontFamily, 10), ForeColor = Theme.TextSecondary };
 
-    private readonly CheckBox _persistenceCheck = new() { Left = 28, Top = 150, Width = 590, Text = "Включить защиту от перезагрузки", Font = new Font(InstallerFonts.MessageFontFamily, 11f) };
-    private readonly CheckBox _autostartCheck = new() { Left = 28, Top = 190, Width = 590, Text = "Служба Windows: зарегистрировать и запустить (автозапуск)", Checked = true, Font = new Font(InstallerFonts.MessageFontFamily, 11f) };
+    // Manage-step controls (shown when an existing installation is detected)
+    private readonly Label _manageInstalledLabel = new() { Left = 28, Top = 130, Width = 590, Height = 28, AutoSize = false, Font = new Font(InstallerFonts.MessageFontFamily, 12f) };
+    private readonly Label _manageLatestLabel    = new() { Left = 28, Top = 164, Width = 590, Height = 28, AutoSize = false, Font = new Font(InstallerFonts.MessageFontFamily, 12f) };
+    private readonly AccentButton _manageUpdateButton    = new() { Text = "Обновить",       Left = 28,  Top = 214, Width = 155 };
+    private readonly AccentButton _manageReinstallButton = new() { Text = "Переустановить", Left = 196, Top = 214, Width = 165, AccentColor = Color.FromArgb(94, 94, 94) };
+    private readonly AccentButton _manageUninstallButton = new() { Text = "Удалить",        Left = 374, Top = 214, Width = 155, AccentColor = Color.FromArgb(176, 42, 55) };
+    private readonly TextBox _manageLogBox = new() { Left = 28, Top = 278, Width = 590, Height = 195, Multiline = true, ScrollBars = ScrollBars.Vertical, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Color.WhiteSmoke, Font = new Font("Consolas", 10f) };
 
     private readonly AccentButton _installButton = new() { Text = "Установить", Left = 28, Top = 120, Width = 190 };
     private readonly AccentButton _uninstallButton = new() { Text = "Удалить полностью", Left = 232, Top = 120, Width = 190, AccentColor = Color.FromArgb(176, 42, 55) };
@@ -71,11 +80,11 @@ public sealed class InstallerForm : Form
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
         BuildShell();
-        BuildStepOne();
-        BuildStepTwo();
-        BuildStepThree();
-        BuildStepFour();
-        ShowStep(0);
+        BuildManageStep();
+        BuildTelegramStep();
+        BuildInstallStep();
+        Load += async (_, _) => await DetectAndOfferAsync();
+        ShowStep(1); // default: start at Telegram; DetectAndOfferAsync moves to step 0 if installed
     }
 
     private void BuildShell()
@@ -120,24 +129,23 @@ public sealed class InstallerForm : Form
         Controls.Add(_contentPanel);
     }
 
-    private void BuildStepOne()
+    private void BuildManageStep()
     {
         var panel = NewStepPanel();
-        AddStepHeader(panel, "Лицензия и приветствие", "Добро пожаловать в современную установку KidControl.");
-        panel.Controls.Add(new Label
-        {
-            Left = 28,
-            Top = 130,
-            Width = 590,
-            Height = 140,
-            Font = new Font(InstallerFonts.MessageFontFamily, 11f),
-            Text = "Продолжая установку, вы подтверждаете ответственность за настройку ограничений доступа и управление приложением через Telegram."
-        });
-        panel.Controls.Add(CreateIllustrationPanel("Security"));
+        AddStepHeader(panel, "Управление KidControl", "Обнаружена существующая установка.");
+        panel.Controls.Add(_manageInstalledLabel);
+        panel.Controls.Add(_manageLatestLabel);
+        panel.Controls.Add(_manageUpdateButton);
+        panel.Controls.Add(_manageReinstallButton);
+        panel.Controls.Add(_manageUninstallButton);
+        panel.Controls.Add(_manageLogBox);
+        _manageUpdateButton.Click    += async (_, _) => await HandleManageUpdateAsync();
+        _manageReinstallButton.Click += async (_, _) => await HandleManageReinstallAsync();
+        _manageUninstallButton.Click += async (_, _) => await HandleManageUninstallAsync();
         _steps[0] = panel;
     }
 
-    private void BuildStepTwo()
+    private void BuildTelegramStep()
     {
         var panel = NewStepPanel();
         AddStepHeader(panel, "Настройка Telegram", "Свяжите систему с ботом и списком администраторов.");
@@ -152,26 +160,16 @@ public sealed class InstallerForm : Form
         _steps[1] = panel;
     }
 
-    private void BuildStepThree()
-    {
-        var panel = NewStepPanel();
-        AddStepHeader(panel, "Опции безопасности", "Выберите поведение системы при запуске.");
-        panel.Controls.Add(_persistenceCheck);
-        panel.Controls.Add(_autostartCheck);
-        panel.Controls.Add(CreateIllustrationPanel("Shield"));
-        _steps[2] = panel;
-    }
-
-    private void BuildStepFour()
+    private void BuildInstallStep()
     {
         var panel = NewStepPanel();
         AddStepHeader(panel, "Установка и удаление", "Запустите установку или полное удаление. Логи службы: папка ProgramData\\KidControl\\logs");
         panel.Controls.Add(_installButton);
         panel.Controls.Add(_uninstallButton);
         panel.Controls.Add(_logBox);
-        _installButton.Click += async (_, _) => await InstallAsync();
+        _installButton.Click   += async (_, _) => await InstallAsync();
         _uninstallButton.Click += async (_, _) => await UninstallAsync();
-        _steps[3] = panel;
+        _steps[2] = panel;
     }
 
     private Panel NewStepPanel()
@@ -274,7 +272,8 @@ public sealed class InstallerForm : Form
 
     private void MoveStep(int delta)
     {
-        var next = Math.Clamp(_currentStep + delta, 0, _steps.Length - 1);
+        var firstVisible = _isInstalled ? 0 : 1;
+        var next = Math.Clamp(_currentStep + delta, firstVisible, _steps.Length - 1);
         ShowStep(next);
     }
 
@@ -286,10 +285,15 @@ public sealed class InstallerForm : Form
             _steps[i].Visible = i == index;
         }
 
-        _backButton.Enabled = index > 0;
-        _nextButton.Enabled = index < _steps.Length - 1;
-        _nextButton.Visible = index < _steps.Length - 1;
-        _backButton.Visible = index < _steps.Length - 1;
+        // Step 0 (manage): no Back/Next — actions are self-contained buttons.
+        // When not installed, step 1 is the first visible step so Back is hidden there too.
+        var firstVisible = _isInstalled ? 0 : 1;
+        var lastVisible  = _steps.Length - 1;
+        _backButton.Enabled = index > firstVisible;
+        _backButton.Visible = index > firstVisible;
+        _nextButton.Enabled = index < lastVisible;
+        _nextButton.Visible = index < lastVisible;
+
         for (var i = 0; i < _stepNav.Length; i++)
         {
             _stepNav[i].IsActive = i == index;
@@ -342,7 +346,10 @@ public sealed class InstallerForm : Form
             var tempPath = Path.Combine(Path.GetTempPath(), $"KidControlInstaller-{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempPath);
 
-            ExtractPayload(tempPath);
+            Log("Получаю последнюю версию с GitHub...");
+            var tag = await GetLatestGitHubTagAsync()
+                      ?? throw new InvalidOperationException("Не удалось определить последнюю версию на GitHub. Проверьте подключение к интернету.");
+            await DownloadPayloadAsync(tag, tempPath);
             Directory.CreateDirectory(ProgramFilesPath);
 
             StopAndDeleteService(ServiceName);
@@ -358,11 +365,8 @@ public sealed class InstallerForm : Form
             File.Copy(Path.Combine(tempPath, "KidControl.ServiceHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.ServiceHost.exe"), true);
             File.Copy(Path.Combine(tempPath, "KidControl.UiHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.UiHost.exe"), true);
 
-            if (_persistenceCheck.Checked)
-            {
-                EnsureProgramDataFolderProtected();
-                Log("Папка ProgramData создана и защищена.");
-            }
+            EnsureProgramDataFolderProtected();
+            Log("Папка ProgramData создана и защищена.");
 
             EnsureProgramDataLogsDirectory();
             ResetPersistedSessionState();
@@ -371,12 +375,9 @@ public sealed class InstallerForm : Form
 
             // Register and start the service before locking the folder ACL
             // so the service binary can be accessed by the SCM during first start.
-            if (_autostartCheck.Checked)
-            {
-                RegisterService();
-                StartService();
-                Log("Служба зарегистрирована и запущена.");
-            }
+            RegisterService();
+            StartService();
+            Log("Служба зарегистрирована и запущена.");
 
             LockInstallFolderAcl();
             Log($"Логи службы и UI: {Path.Combine(ProgramDataPath, "logs")}");
@@ -385,11 +386,8 @@ public sealed class InstallerForm : Form
             RegisterServiceRestartTask();
             Log("Задачи планировщика для UI и перезапуска службы обновлены.");
 
-            if (_autostartCheck.Checked)
-            {
-                ProtectServiceRegistryKey();
-                Log("Ключ реестра службы защищён.");
-            }
+            ProtectServiceRegistryKey();
+            Log("Ключ реестра службы защищён.");
 
             HideFromUninstallList();
             Log("Приложение скрыто из списка установленных программ.");
@@ -477,47 +475,81 @@ public sealed class InstallerForm : Form
         await Task.CompletedTask;
     }
 
-    private void ExtractPayload(string tempPath)
+    // ─── GitHub helpers ────────────────────────────────────────────────────────
+
+    private static string GetInstalledVersion(string exePath)
     {
-        Extract("Payload.KidControl.ServiceHost.exe", Path.Combine(tempPath, "KidControl.ServiceHost.exe"));
-        Extract("Payload.KidControl.UiHost.exe", Path.Combine(tempPath, "KidControl.UiHost.exe"));
+        try
+        {
+            var info = FileVersionInfo.GetVersionInfo(exePath);
+            return info.ProductVersion ?? info.FileVersion ?? "неизвестно";
+        }
+        catch
+        {
+            return "неизвестно";
+        }
     }
 
-    private static void Extract(string logicalName, string destinationPath)
+    private static async Task<string?> GetLatestGitHubTagAsync()
     {
-        // Single-file publish: GetExecutingAssembly() may not be the project assembly that holds EmbeddedResource.
-        var assembly = typeof(InstallerForm).Assembly;
-        var fullName = $"{typeof(InstallerForm).Namespace}.{logicalName}";
-        var resourceNames = assembly.GetManifestResourceNames();
-        var actualResourceName = resourceNames.FirstOrDefault(name =>
-            string.Equals(name, fullName, StringComparison.OrdinalIgnoreCase))
-            ?? resourceNames.FirstOrDefault(name =>
-                name.EndsWith(logicalName, StringComparison.OrdinalIgnoreCase))
-            ?? resourceNames.FirstOrDefault(name =>
-                name.EndsWith(Path.GetFileName(logicalName), StringComparison.OrdinalIgnoreCase));
-
-        using var stream = actualResourceName is null
-            ? null
-            : assembly.GetManifestResourceStream(actualResourceName);
-
-        if (stream is null)
+        try
         {
-            var fileName = Path.GetFileName(logicalName);
-            if (TryCopyPayloadFromDisk(fileName, destinationPath))
-            {
-                return;
-            }
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "KidControl-Installer");
+            var json = await http.GetStringAsync($"https://api.github.com/repos/{GitHubRepo}/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("tag_name", out var tag))
+                return tag.GetString();
+        }
+        catch { }
+        return null;
+    }
 
-            var knownResources = resourceNames.Length == 0
-                ? "(нет встроенных ресурсов в этой сборке — часто признак single-file + неверный Assembly)"
-                : string.Join(", ", resourceNames);
-            throw new InvalidOperationException(
-                $"Ресурс не найден: {fullName}. Доступные ресурсы: {knownResources}. " +
-                "Рядом с инсталлером должна быть папка Artifacts с тремя .exe (полная сборка через build.ps1).");
+    /// <summary>
+    /// Downloads ServiceHost.exe and UiHost.exe for the given release tag into destDir.
+    /// Falls back to files next to the installer (offline usage) before attempting GitHub.
+    /// </summary>
+    private async Task DownloadPayloadAsync(string tag, string destDir)
+    {
+        var svcDest = Path.Combine(destDir, AssetServiceHost);
+        var uiDest  = Path.Combine(destDir, AssetUiHost);
+
+        // Offline fallback: files sitting next to the installer exe.
+        if (TryCopyPayloadFromDisk(AssetServiceHost, svcDest) && TryCopyPayloadFromDisk(AssetUiHost, uiDest))
+        {
+            Log("Файлы найдены рядом с установщиком (офлайн-режим).");
+            return;
         }
 
-        using var file = File.Create(destinationPath);
-        stream.CopyTo(file);
+        Log($"Скачиваю бинарники версии {tag} с GitHub...");
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "KidControl-Installer");
+
+        var releaseJson = await http.GetStringAsync(
+            $"https://api.github.com/repos/{GitHubRepo}/releases/tags/{tag}");
+        using var doc = JsonDocument.Parse(releaseJson);
+        var assets = doc.RootElement.GetProperty("assets");
+
+        foreach (var asset in assets.EnumerateArray())
+        {
+            var name = asset.GetProperty("name").GetString() ?? string.Empty;
+            var url  = asset.GetProperty("browser_download_url").GetString() ?? string.Empty;
+
+            string? destFile = null;
+            if (name == AssetServiceHost) destFile = svcDest;
+            else if (name == AssetUiHost) destFile = uiDest;
+            else continue;
+
+            Log($"Скачиваю {name}...");
+            var bytes = await http.GetByteArrayAsync(url);
+            await File.WriteAllBytesAsync(destFile, bytes);
+            Log($"{name} скачан ({bytes.Length / 1024} КБ).");
+        }
+
+        if (!File.Exists(svcDest))
+            throw new InvalidOperationException($"Не удалось получить {AssetServiceHost} из релиза {tag}.");
+        if (!File.Exists(uiDest))
+            throw new InvalidOperationException($"Не удалось получить {AssetUiHost} из релиза {tag}.");
     }
 
     private static bool TryCopyPayloadFromDisk(string fileName, string destinationPath)
@@ -1563,7 +1595,118 @@ public sealed class InstallerForm : Form
 
     private void Log(string text)
     {
-        _logBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}{Environment.NewLine}");
+        var target = _currentStep == 0 ? _manageLogBox : _logBox;
+        target.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}{Environment.NewLine}");
+    }
+
+    // ─── Detect installed version & manage step ───────────────────────────────
+
+    /// <summary>
+    /// Called on Form Load. If an existing installation is detected, populates the
+    /// manage step (step 0) with version info and switches to it. Otherwise the wizard
+    /// stays on step 1 (Telegram) for a fresh install.
+    /// </summary>
+    private async Task DetectAndOfferAsync()
+    {
+        var installedExe = Path.Combine(ProgramFilesPath, AssetServiceHost);
+        if (!File.Exists(installedExe)) return;
+
+        _isInstalled = true;
+        _manageInstalledLabel.Text = $"Установлена версия: {GetInstalledVersion(installedExe)}";
+        _manageLatestLabel.Text    = "Последняя версия на GitHub: проверяю...";
+        ShowStep(0);
+
+        var latest = await GetLatestGitHubTagAsync();
+        _manageLatestLabel.Text = $"Последняя версия на GitHub: {latest ?? "не удалось получить"}";
+    }
+
+    private void SetManageButtonsEnabled(bool enabled)
+    {
+        _manageUpdateButton.Enabled    = enabled;
+        _manageReinstallButton.Enabled = enabled;
+        _manageUninstallButton.Enabled = enabled;
+    }
+
+    private async Task HandleManageUpdateAsync()
+    {
+        if (!EnsureAdmin()) return;
+        SetManageButtonsEnabled(false);
+        Log("Получаю последнюю версию с GitHub...");
+        try
+        {
+            var tag = await GetLatestGitHubTagAsync()
+                      ?? throw new InvalidOperationException("Не удалось получить последнюю версию с GitHub. Проверьте подключение к интернету.");
+            var tempPath = Path.Combine(Path.GetTempPath(), $"KidControlUpdate-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(tempPath);
+            await DownloadPayloadAsync(tag, tempPath);
+            PerformBinaryUpdate(tempPath, Log);
+            Log("Обновление завершено успешно.");
+            try { Directory.Delete(tempPath, recursive: true); } catch { }
+        }
+        catch (Exception ex)
+        {
+            Log($"Ошибка обновления: {ex.Message}");
+        }
+        SetManageButtonsEnabled(true);
+    }
+
+    private async Task HandleManageReinstallAsync()
+    {
+        if (!EnsureAdmin()) return;
+        SetManageButtonsEnabled(false);
+        Log("Удаляю текущую версию для переустановки...");
+        await UninstallAsync();
+        _isInstalled = false;
+        ShowStep(1); // back to Telegram for fresh install
+    }
+
+    private async Task HandleManageUninstallAsync()
+    {
+        if (!EnsureAdmin()) return;
+        SetManageButtonsEnabled(false);
+        Log("Начинаю удаление...");
+        await UninstallAsync();
+        Close();
+    }
+
+    /// <summary>
+    /// Replaces installed binaries with those in <paramref name="tempPath"/>,
+    /// re-registers the service, and restores all protection. Does NOT touch
+    /// appsettings.json or session_state.json.
+    /// </summary>
+    private void PerformBinaryUpdate(string tempPath, Action<string> log)
+    {
+        Directory.CreateDirectory(ProgramFilesPath);
+
+        StopAndDeleteService(ServiceName);
+        KillAllKidControlProcessesBlockingUninstall();
+        Thread.Sleep(500);
+
+        if (Directory.Exists(ProgramDataPath))
+            GrantAdministratorsAndSystemRecursive(ProgramDataPath);
+
+        UnlockInstallFolderAcl();
+        Thread.Sleep(300);
+
+        File.Copy(Path.Combine(tempPath, AssetServiceHost), Path.Combine(ProgramFilesPath, AssetServiceHost), overwrite: true);
+        File.Copy(Path.Combine(tempPath, AssetUiHost),      Path.Combine(ProgramFilesPath, AssetUiHost),      overwrite: true);
+        log("Бинарники заменены.");
+
+        EnsureProgramDataLogsDirectory();
+        EnsureProgramDataFolderProtected();
+
+        RegisterService();
+        StartService();
+        log("Служба перезапущена.");
+
+        LockInstallFolderAcl();
+
+        RegisterUiTask();
+        RegisterServiceRestartTask();
+        log("Задачи планировщика обновлены.");
+
+        ProtectServiceRegistryKey();
+        log("Защита реестра обновлена.");
     }
 
     // ─── Silent update / rollback ────────────────────────────────────────────
@@ -1586,59 +1729,23 @@ public sealed class InstallerForm : Form
 
         try
         {
-            // Extract embedded payloads to a temp dir.
             var tempPath = Path.Combine(Path.GetTempPath(), $"KidControlUpdate-{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempPath);
             SilentLog($"Temp dir: {tempPath}");
 
-            ExtractPayload(tempPath);
+            // Determine latest release tag and download payloads.
+            var tag = GetLatestGitHubTagAsync().GetAwaiter().GetResult()
+                      ?? throw new InvalidOperationException("Could not determine latest GitHub release tag.");
+            SilentLog($"Latest tag: {tag}");
 
-            Directory.CreateDirectory(ProgramFilesPath);
-
-            // Stop and remove the existing service so the EXE file is not locked.
-            StopAndDeleteService(ServiceName);
-            KillAllKidControlProcessesBlockingUninstall();
-            Thread.Sleep(500);
-
-            // Relax ProgramData ACL so we can write (the new service will re-lock it).
-            if (Directory.Exists(ProgramDataPath))
-            {
-                GrantAdministratorsAndSystemRecursive(ProgramDataPath);
-            }
-
-            // Unlock install folder ACL before overwriting files.
-            UnlockInstallFolderAcl();
-            Thread.Sleep(300);
-
-            // Copy new binaries (overwrite).
-            File.Copy(Path.Combine(tempPath, "KidControl.ServiceHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.ServiceHost.exe"), overwrite: true);
-            File.Copy(Path.Combine(tempPath, "KidControl.UiHost.exe"), Path.Combine(ProgramFilesPath, "KidControl.UiHost.exe"), overwrite: true);
-            SilentLog("Binaries replaced.");
-
-            // Ensure ProgramData directories exist (no ACL change — handled below by EnsureProgramDataFolderProtected).
-            EnsureProgramDataLogsDirectory();
+            // DownloadPayloadAsync internally calls Log() which writes to the in-memory
+            // _logBox — harmless in silent mode since no UI message pump is running.
+            DownloadPayloadAsync(tag, tempPath).GetAwaiter().GetResult();
+            SilentLog("Payload downloaded.");
 
             // Intentionally skip WriteAppSettings() and ResetPersistedSessionState() —
             // silent update preserves existing Telegram config and session state.
-
-            // Re-lock ProgramData.
-            EnsureProgramDataFolderProtected();
-
-            // Re-register and start service.
-            RegisterService();
-            StartService();
-            SilentLog("Service re-registered and started.");
-
-            // Re-lock install folder.
-            LockInstallFolderAcl();
-
-            // Re-register scheduled tasks.
-            RegisterUiTask();
-            RegisterServiceRestartTask();
-            SilentLog("Scheduled tasks updated.");
-
-            // Re-protect registry key.
-            ProtectServiceRegistryKey();
+            PerformBinaryUpdate(tempPath, SilentLog);
 
             // Clean up temp dir.
             try { Directory.Delete(tempPath, recursive: true); } catch { }
