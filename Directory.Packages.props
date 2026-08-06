@@ -28,7 +28,7 @@
     <PackageVersion Include="Serilog.Formatting.Compact" Version="3.0.0" />
 
     <!-- Integrations -->
-    <PackageVersion Include="Telegram.Bot" Version="21.11.0" />
+    <PackageVersion Include="Telegram.Bot" Version="22.9.6.1" />
 
     <!-- Windows-specific -->
     <PackageVersion Include="System.ServiceProcess.ServiceController" Version="8.0.1" />

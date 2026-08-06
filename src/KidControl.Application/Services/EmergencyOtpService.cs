@@ -38,7 +38,7 @@ public sealed class EmergencyOtpService(IClock clock)
                 return null;
             }
 
-            var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+            var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
             _code = code;
             _expiresAt = now + Validity;
             _lastIssuedAt = now;
