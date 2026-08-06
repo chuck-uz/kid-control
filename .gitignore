@@ -1,0 +1,25 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+publish/
+[Bb]uild/
+artifacts/
+*.user
+
+# Rider / VS
+.idea/
+.vs/
+
+# Secrets — never commit runtime config with a real bot token
+**/appsettings.json
+**/appsettings.Local.json
+**/appsettings.Secrets.json
+!**/appsettings.template.json
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

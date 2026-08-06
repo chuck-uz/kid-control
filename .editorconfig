@@ -1,0 +1,21 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.cs]
+indent_size = 4
+dotnet_sort_system_directives_first = true
+csharp_style_namespace_declarations = file_scoped:warning
+dotnet_style_readonly_field = true:warning
+dotnet_diagnostic.CA1416.severity = warning
+
+[*.{csproj,props,targets,xml,xaml}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2

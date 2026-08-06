@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!--
+      Windows TFM: this project talks to the SCM, the Windows ACL engine and the
+      registry, so it must target -windows. It contains NO WinForms/UI so it stays
+      unit-testable in isolation (run the tests on the windows-latest CI runner).
+      The net*-windows targeting pack supplies Microsoft.Win32.Registry,
+      System.Security.AccessControl and System.Security.Principal.Windows in-box.
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <SupportedOSPlatformVersion>10.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\KidControl.Contracts\KidControl.Contracts.csproj" />
+  </ItemGroup>
+</Project>

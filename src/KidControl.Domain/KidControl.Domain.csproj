@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pure domain: no framework, no Windows, no external packages. Fully unit-testable. -->
+</Project>
