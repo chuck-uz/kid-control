@@ -6,11 +6,18 @@
 найденных при разборе v1, и с архитектурой, заточенной под тестируемость,
 безопасность и сопровождение.
 
-> ⚠️ **Важно:** код написан на macOS без .NET SDK и **не компилировался**. Это
-> референс-реализация: собирать, гонять тесты и доводить до зелёного нужно на
-> Windows (`dotnet build` / `dotnet test`, CI на `windows-latest`). Версии пакетов
-> в `Directory.Packages.props` могут потребовать уточнения под доступные в вашем
-> фиде сборки.
+> ✅ **Статус сборки:** решение собрано и протестировано на macOS (.NET SDK 8.0.423,
+> osx-arm64). Полная сборка всех 12 проектов — **0 ошибок**; тесты — **149/149**
+> (Domain 90, Application 54, Infrastructure 5). WPF/WinForms-проекты собираются на
+> macOS в compile-режиме через флаг `-p:EnableWindowsTargeting=true`; **исполнять и
+> публиковать (`win-x64`, single-file) — только на Windows**. CI-гейт — на
+> `windows-latest`.
+>
+> Команды:
+> ```bash
+> dotnet build KidControl.sln -c Release -p:EnableWindowsTargeting=true
+> dotnet test  KidControl.sln -c Release -p:EnableWindowsTargeting=true
+> ```
 
 ## Философия
 

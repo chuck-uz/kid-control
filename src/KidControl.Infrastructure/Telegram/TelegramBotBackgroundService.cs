@@ -8,6 +8,8 @@ using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+// Disambiguate the Telegram Update type from the KidControl.Infrastructure.Update namespace.
+using TgUpdate = Telegram.Bot.Types.Update;
 
 namespace KidControl.Infrastructure.Telegram;
 
@@ -87,7 +89,7 @@ public sealed class TelegramBotBackgroundService(
         }
     }
 
-    private async Task HandleUpdateSafeAsync(Update update, CancellationToken ct)
+    private async Task HandleUpdateSafeAsync(TgUpdate update, CancellationToken ct)
     {
         try
         {

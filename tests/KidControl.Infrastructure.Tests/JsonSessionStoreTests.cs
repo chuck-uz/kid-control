@@ -3,6 +3,7 @@ using KidControl.Application.Models;
 using KidControl.Domain.Enums;
 using KidControl.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
 
 namespace KidControl.Infrastructure.Tests;
 

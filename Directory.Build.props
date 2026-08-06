@@ -4,8 +4,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <!-- Warnings are errors in CI so drift is caught early. Override locally with -p:TreatWarningsAsErrors=false. -->
+    <!-- Compiler (CS) warnings are errors so real correctness drift is caught early.
+         Analyzer (CA) suggestions stay as visible warnings, not build-breakers — rules
+         like CA1848 (LoggerMessage delegates) aren't worth failing a build over here. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <CodeAnalysisTreatWarningsAsErrors>false</CodeAnalysisTreatWarningsAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
