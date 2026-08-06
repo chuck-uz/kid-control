@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Shared kernel: IPC DTOs and cross-process constants. No dependencies. -->
+</Project>

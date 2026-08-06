@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <SupportedOSPlatformVersion>10.0</SupportedOSPlatformVersion>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <!-- Shared Win32 interop, referenced by both hosts and the installer.
+       Eliminates the DACL/P-Invoke duplication that existed between
+       UiHost/ProcessProtection and ServiceHost/Program in the original. -->
+</Project>
