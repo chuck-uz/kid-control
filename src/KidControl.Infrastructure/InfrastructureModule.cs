@@ -66,6 +66,9 @@ public static class InfrastructureModule
         services.AddSingleton<EmergencyOtpService>();
         services.AddSingleton<SessionService>();
 
+        // Service -> UI command channel (screenshots, audio playback).
+        services.AddSingleton<UiCommandClient>();
+
         // Windows self-protection helpers.
         services.AddSingleton<ProcessWatchdog>();
         services.AddSingleton<TamperDetector>();

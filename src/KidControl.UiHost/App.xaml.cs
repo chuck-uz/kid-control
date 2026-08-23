@@ -27,11 +27,16 @@ public partial class App : Application
 
         var services = new ServiceCollection();
         services.AddSingleton<StatePipeClient>();
+        services.AddSingleton<UiCommandServer>();
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         _serviceProvider = services.BuildServiceProvider();
 
         _serviceProvider.GetRequiredService<StatePipeClient>().Start();
+        if (OperatingSystem.IsWindows())
+        {
+            _serviceProvider.GetRequiredService<UiCommandServer>().Start();
+        }
 
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -93,6 +98,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _serviceProvider?.GetService<StatePipeClient>()?.Stop();
+        _serviceProvider?.GetService<UiCommandServer>()?.Stop();
         _serviceProvider?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);
