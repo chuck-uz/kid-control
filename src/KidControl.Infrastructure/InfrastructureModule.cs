@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Runtime.Versioning;
 using KidControl.Application.Abstractions;
 using KidControl.Application.Models;
@@ -72,11 +73,18 @@ public static class InfrastructureModule
 
         // Update subsystem.
         services.AddSingleton<AuthenticodeVerifier>();
-        services.AddHttpClient<GitHubReleaseClient>(client =>
+        services.AddHttpClient<GitHubReleaseClient>((sp, client) =>
         {
             client.BaseAddress = new Uri("https://api.github.com/");
             client.DefaultRequestHeaders.UserAgent.ParseAdd("KidControl-Updater/1.0");
             client.Timeout = TimeSpan.FromSeconds(60);
+
+            // Only needed for a PRIVATE repo; harmless (and unset) for a public one.
+            var upd = sp.GetRequiredService<IOptions<UpdateConfig>>().Value;
+            if (!string.IsNullOrWhiteSpace(upd.GitHubToken))
+            {
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", upd.GitHubToken);
+            }
         });
 
         return services;

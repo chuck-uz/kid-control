@@ -30,6 +30,13 @@ public sealed class UpdateConfig
     /// <summary>SHA-256 thumbprint of the trusted publisher certificate (uppercase hex, no spaces).</summary>
     public string? TrustedThumbprint { get; init; }
 
+    /// <summary>
+    /// GitHub token for reading releases/assets from a PRIVATE repository. Leave empty for a
+    /// public repo. Stored in the protected %ProgramData% appsettings; prefer a fine-grained
+    /// token limited to Contents:Read on this one repo.
+    /// </summary>
+    public string? GitHubToken { get; init; }
+
     /// <summary>Optional allow-list of hosts a release asset may be downloaded from.</summary>
     public string[] AllowedAssetHosts { get; init; } = ["github.com", "objects.githubusercontent.com"];
 
