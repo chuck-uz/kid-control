@@ -1,5 +1,6 @@
 using KidControl.Application.Abstractions;
 using KidControl.Application.Commands;
+using KidControl.Application.Models;
 using KidControl.Application.Services;
 using KidControl.Contracts;
 using KidControl.Infrastructure.Configuration;
@@ -194,7 +195,7 @@ public sealed class TelegramBotBackgroundService(
                 await Send(chatId, "Выберите режим (игра / отдых, мин):", RulesMenu, ct).ConfigureAwait(false);
                 return;
             case "📦 Версия":
-                await Send(chatId, $"Текущая версия: {updates.CurrentVersion}", VersionMenu(), ct).ConfigureAwait(false);
+                await Send(chatId, $"Текущая версия: {updates.CurrentVersionText}", VersionMenu(), ct).ConfigureAwait(false);
                 return;
         }
 
@@ -236,15 +237,51 @@ public sealed class TelegramBotBackgroundService(
                 await bot.AnswerCallbackQuery(callback.Id, "Проверяю…", cancellationToken: ct).ConfigureAwait(false);
                 var info = await updates.CheckAsync(ct).ConfigureAwait(false);
                 var msg = info is null
-                    ? $"Обновлений нет. Текущая версия: {updates.CurrentVersion}."
-                    : $"Доступна версия {info.Tag}. Обновление установится автоматически.";
+                    ? $"Обновлений нет. Текущая версия: {updates.CurrentVersionText}."
+                    : $"Доступна версия {info.Tag} (сейчас {updates.CurrentVersionText}). Нажмите «⬇️ Обновить сейчас» или дождитесь авто-обновления.";
                 await Send(chatId, msg, MainKeyboard, ct).ConfigureAwait(false);
+                return;
+            case "ver:update":
+                await bot.AnswerCallbackQuery(callback.Id, "Проверяю обновление…", cancellationToken: ct).ConfigureAwait(false);
+                await TriggerUpdateAsync(chatId, ct).ConfigureAwait(false);
                 return;
         }
 
         var reply = await session.ExecuteAsync(CommandParser.Parse(data), ct).ConfigureAwait(false);
         await bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct).ConfigureAwait(false);
         await Send(chatId, reply, MainKeyboard, ct).ConfigureAwait(false);
+    }
+
+    private async Task TriggerUpdateAsync(long chatId, CancellationToken ct)
+    {
+        UpdateInfo? info;
+        try
+        {
+            info = await updates.CheckAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Manual update check failed.");
+            await Send(chatId, "Не удалось проверить обновление (см. логи).", MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
+
+        if (info is null)
+        {
+            await Send(chatId, $"Обновлений нет. Текущая версия: {updates.CurrentVersionText}.", MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await updates.StartInstallAsync(info.Tag, ct).ConfigureAwait(false);
+            await Send(chatId, $"⬇️ Устанавливаю {info.Tag}. Служба перезапустится автоматически.", MainKeyboard, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Manual update to {Tag} failed.", info.Tag);
+            await Send(chatId, $"⚠️ Не удалось установить {info.Tag}: {ex.Message}", MainKeyboard, ct).ConfigureAwait(false);
+        }
     }
 
     private async Task SendScreenshotAsync(long chatId, CancellationToken ct)
@@ -303,7 +340,11 @@ public sealed class TelegramBotBackgroundService(
         => bot.SendMessage(chatId, text, replyMarkup: markup, cancellationToken: ct);
 
     private static InlineKeyboardMarkup VersionMenu()
-        => new(new[] { new[] { Btn("⬆️ Проверить обновление", "ver:check") } });
+        => new(new[]
+        {
+            new[] { Btn("⬆️ Проверить обновление", "ver:check") },
+            new[] { Btn("⬇️ Обновить сейчас", "ver:update") }
+        });
 
     private static InlineKeyboardMarkup Confirm(string yesLabel, string yesCommand)
         => new(new[] { new[] { Btn(yesLabel, yesCommand), Btn("Отмена", "menu:cancel") } });

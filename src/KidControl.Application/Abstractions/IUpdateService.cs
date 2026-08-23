@@ -7,6 +7,9 @@ public interface IUpdateService
 {
     Version CurrentVersion { get; }
 
+    /// <summary>Human-readable running version, incl. any pre-release label (e.g. "2.0.2" or "0.0.1-source").</summary>
+    string CurrentVersionText { get; }
+
     /// <summary>Returns update info if a newer, verified release is available; otherwise null.</summary>
     Task<UpdateInfo?> CheckAsync(CancellationToken ct = default);
 
