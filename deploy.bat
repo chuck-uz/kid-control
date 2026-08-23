@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================================
-rem  KidControl — deploy.bat
+rem  KidControl - deploy.bat
 rem  Downloads the latest release source from GitHub, builds it, and installs it.
 rem
 rem  Flow:  self-elevate -> ensure .NET 8 SDK -> download latest release ->
@@ -8,11 +8,11 @@ rem         build.ps1 (restore/build/test/publish) -> run the installer.
 rem
 rem  This is a single self-contained file: the batch header below configures and
 rem  elevates, then hands off to the PowerShell section after the marker line
-rem  (batch never executes those lines — it exits first).
+rem  (batch never executes those lines - it exits first).
 rem ============================================================================
 
 rem ---------------------------------------------------------------------------
-rem  CONFIG — edit these, then just double-click the file.
+rem  CONFIG - edit these, then just double-click the file.
 rem ---------------------------------------------------------------------------
 rem  GitHub repository that holds the KidControl v2 source (with KidControl.sln
 rem  and build.ps1). Change REPO to wherever you pushed v2.
@@ -20,7 +20,7 @@ set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
 
 rem  Where to pull source from:
-rem    release = latest published GitHub release (default; "свежий релиз")
+rem    release = latest published GitHub release (default)
 rem    branch  = head of the branch named in KC_BRANCH (use if there are no releases yet)
 set "KC_SOURCE_MODE=branch"
 set "KC_BRANCH=v2"
@@ -90,7 +90,7 @@ if !errorlevel! NEQ 0 (
 rem --- Hand off to the embedded PowerShell payload --------------------------
 call :log "launching PowerShell payload"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$raw = Get-Content -Raw -LiteralPath '%~f0'; $m = '::PS' + '_START::'; $i = $raw.LastIndexOf($m); Invoke-Expression $raw.Substring($i + $m.Length)"
+  "$raw = Get-Content -Raw -Encoding UTF8 -LiteralPath '%~f0'; $m = '::PS' + '_START::'; $i = $raw.LastIndexOf($m); Invoke-Expression $raw.Substring($i + $m.Length)"
 
 set "RC=!errorlevel!"
 call :log "PowerShell payload exit code = !RC!"
@@ -153,7 +153,7 @@ if (-not $haveSdk) {
     $localDotnet = Join-Path $env:USERPROFILE '.dotnet'
     $localExe    = Join-Path $localDotnet 'dotnet.exe'
     if (-not (Test-Path $localExe)) {
-        Info 'No .NET 8 SDK found — installing it locally to %USERPROFILE%\.dotnet (no admin/global change)'
+        Info 'No .NET 8 SDK found - installing it locally to %USERPROFILE%\.dotnet (no admin/global change)'
         New-Item -ItemType Directory -Force -Path $work | Out-Null
         $installPs1 = Join-Path $work 'dotnet-install.ps1'
         Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $installPs1 -Headers $ua
@@ -239,7 +239,7 @@ Ok "Source root: $root"
 # ---- 3. Build (restore + build + test + publish) -------------------------
 $build = Join-Path $root 'build.ps1'
 if (-not (Test-Path $build)) { throw "build.ps1 not found next to the solution." }
-Info 'Building (restore, build, test, publish) — this can take a few minutes'
+Info 'Building (restore, build, test, publish) - this can take a few minutes'
 & $build
 
 $installer = Join-Path $root 'publish\Installer\KidControl.Installer.exe'
@@ -254,7 +254,7 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     if ($p.ExitCode -ne 0) { throw "Installer exited with code $($p.ExitCode)." }
 } else {
     if ([string]::IsNullOrWhiteSpace($env:KC_ADMIN_IDS)) {
-        throw "KC_BOT_TOKEN is set but KC_ADMIN_IDS is empty — silent install needs both."
+        throw "KC_BOT_TOKEN is set but KC_ADMIN_IDS is empty - silent install needs both."
     }
     Info 'Running silent install'
     $sourceDir = Join-Path $root 'publish\Installer'
