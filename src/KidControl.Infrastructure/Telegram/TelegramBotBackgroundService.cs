@@ -1,3 +1,4 @@
+using KidControl.Application.Abstractions;
 using KidControl.Application.Commands;
 using KidControl.Application.Services;
 using KidControl.Infrastructure.Configuration;
@@ -14,10 +15,10 @@ using TgUpdate = Telegram.Bot.Types.Update;
 namespace KidControl.Infrastructure.Telegram;
 
 /// <summary>
-/// Long-polling Telegram listener. Admin chats issue commands (typed or via the inline
-/// menu); every input flows through the pure <see cref="CommandParser"/> into
-/// <see cref="SessionService.ExecuteAsync"/>, so message and callback handling share one
-/// tiny dispatch path instead of the original's ~600-line switch.
+/// Long-polling Telegram listener. A persistent reply keyboard exposes six folders; each
+/// folder opens an inline sub-menu whose buttons carry slash-commands (routed through the
+/// pure <see cref="CommandParser"/> into <see cref="SessionService.ExecuteAsync"/>) or a
+/// few UI-only tokens (menu:*/pc:*/ver:*) handled here.
 ///
 /// Hardening: pending updates queued while the service was down are dropped on startup
 /// (a stale "/shutdown" must not replay), and non-admin chats are ignored outright.
@@ -25,18 +26,50 @@ namespace KidControl.Infrastructure.Telegram;
 public sealed class TelegramBotBackgroundService(
     ITelegramBotClient bot,
     SessionService session,
+    IUpdateService updates,
     IOptions<TelegramConfig> config,
     ILogger<TelegramBotBackgroundService> logger) : BackgroundService
 {
-    private static readonly InlineKeyboardMarkup Menu = new(new[]
+    private readonly TelegramConfig _config = config.Value;
+
+    // Persistent bottom keyboard (six folders). Sending it replaces any stale keyboard
+    // left over from a previous version.
+    private static readonly ReplyKeyboardMarkup MainKeyboard = new(new[]
     {
-        new[] { Button("📊 Статус", "/status"), Button("🔄 Сброс", "/reset") },
-        new[] { Button("🚫 Блок", "/block"), Button("✅ Разблок", "/unblock") },
-        new[] { Button("+15", "/addtime 15"), Button("+30", "/addtime 30"), Button("+60", "/addtime 60") },
-        new[] { Button("⏸️ Пауза", "/pause"), Button("▶️ Продолжить", "/resume") }
+        new KeyboardButton[] { "📊 Статус", "➕ Время" },
+        new KeyboardButton[] { "🎮 Приложение", "💻 Компьютер" },
+        new KeyboardButton[] { "⚙️ Интервалы", "📦 Версия" }
+    })
+    { ResizeKeyboard = true };
+
+    private static readonly InlineKeyboardMarkup StatusMenu = new(new[]
+    {
+        new[] { Btn("🚫 Блок", "/block"), Btn("✅ Разблок", "/unblock") },
+        new[] { Btn("🔄 Сбросить таймер", "/reset") }
     });
 
-    private readonly TelegramConfig _config = config.Value;
+    private static readonly InlineKeyboardMarkup TimeMenu = new(new[]
+    {
+        new[] { Btn("+15", "/addtime 15"), Btn("+30", "/addtime 30") },
+        new[] { Btn("+60", "/addtime 60"), Btn("+120", "/addtime 120") }
+    });
+
+    private static readonly InlineKeyboardMarkup AppMenu = new(new[]
+    {
+        new[] { Btn("⏸️ Пауза", "/pause"), Btn("▶️ Продолжить", "/resume") }
+    });
+
+    private static readonly InlineKeyboardMarkup PcMenu = new(new[]
+    {
+        new[] { Btn("🔌 Выключить ПК", "pc:shutdown") },
+        new[] { Btn("🔄 Перезагрузить ПК", "pc:restart") }
+    });
+
+    private static readonly InlineKeyboardMarkup RulesMenu = new(new[]
+    {
+        new[] { Btn("60 / 15", "/setrule 60 15"), Btn("45 / 15", "/setrule 45 15") },
+        new[] { Btn("40 / 20", "/setrule 40 20"), Btn("30 / 10", "/setrule 30 10") }
+    });
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -53,8 +86,8 @@ public sealed class TelegramBotBackgroundService(
         {
             try
             {
-                var updates = await bot.GetUpdates(offset, timeout: 20, cancellationToken: stoppingToken).ConfigureAwait(false);
-                foreach (var update in updates)
+                var updateList = await bot.GetUpdates(offset, timeout: 20, cancellationToken: stoppingToken).ConfigureAwait(false);
+                foreach (var update in updateList)
                 {
                     offset = update.Id + 1;
                     await HandleUpdateSafeAsync(update, stoppingToken).ConfigureAwait(false);
@@ -116,15 +149,38 @@ public sealed class TelegramBotBackgroundService(
             return;
         }
 
-        var trimmed = text.Trim();
-        if (trimmed is "/start" or "/menu")
+        var t = text.Trim();
+
+        // Folder buttons (and /start) — open the matching inline sub-menu.
+        switch (t)
         {
-            await bot.SendMessage(chatId, "Управление KidControl:", replyMarkup: Menu, cancellationToken: ct).ConfigureAwait(false);
-            return;
+            case "/start":
+            case "/menu":
+                await Send(chatId, "Управление KidControl:", MainKeyboard, ct).ConfigureAwait(false);
+                return;
+            case "📊 Статус":
+                await Send(chatId, session.StatusText(), StatusMenu, ct).ConfigureAwait(false);
+                return;
+            case "➕ Время":
+                await Send(chatId, "Добавить игровое время:", TimeMenu, ct).ConfigureAwait(false);
+                return;
+            case "🎮 Приложение":
+                await Send(chatId, "Управление контролем:", AppMenu, ct).ConfigureAwait(false);
+                return;
+            case "💻 Компьютер":
+                await Send(chatId, "Управление компьютером:", PcMenu, ct).ConfigureAwait(false);
+                return;
+            case "⚙️ Интервалы":
+                await Send(chatId, "Выберите режим (игра / отдых, мин):", RulesMenu, ct).ConfigureAwait(false);
+                return;
+            case "📦 Версия":
+                await Send(chatId, $"Текущая версия: {updates.CurrentVersion}", VersionMenu(), ct).ConfigureAwait(false);
+                return;
         }
 
-        var reply = await session.ExecuteAsync(CommandParser.Parse(trimmed), ct).ConfigureAwait(false);
-        await bot.SendMessage(chatId, reply, cancellationToken: ct).ConfigureAwait(false);
+        // Anything else: treat as a typed command; refresh the keyboard on the reply.
+        var reply = await session.ExecuteAsync(CommandParser.Parse(t), ct).ConfigureAwait(false);
+        await Send(chatId, reply, MainKeyboard, ct).ConfigureAwait(false);
     }
 
     private async Task HandleCallbackAsync(CallbackQuery callback, CancellationToken ct)
@@ -132,16 +188,50 @@ public sealed class TelegramBotBackgroundService(
         var chatId = callback.Message?.Chat.Id ?? callback.From.Id;
         if (!_config.IsAdmin(chatId))
         {
-            logger.LogWarning("Ignored callback from non-admin chat {ChatId}.", chatId);
             await bot.AnswerCallbackQuery(callback.Id, "Недостаточно прав.", showAlert: true, cancellationToken: ct).ConfigureAwait(false);
             return;
         }
 
-        var reply = await session.ExecuteAsync(CommandParser.Parse(callback.Data), ct).ConfigureAwait(false);
+        var data = callback.Data ?? string.Empty;
+
+        // UI-only tokens handled here; everything else is a slash command.
+        switch (data)
+        {
+            case "pc:shutdown":
+                await bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct).ConfigureAwait(false);
+                await Send(chatId, "Выключить компьютер?", Confirm("⚠️ Да, выключить", "/shutdown"), ct).ConfigureAwait(false);
+                return;
+            case "pc:restart":
+                await bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct).ConfigureAwait(false);
+                await Send(chatId, "Перезагрузить компьютер?", Confirm("⚠️ Да, перезагрузить", "/restart"), ct).ConfigureAwait(false);
+                return;
+            case "menu:cancel":
+                await bot.AnswerCallbackQuery(callback.Id, "Отменено", cancellationToken: ct).ConfigureAwait(false);
+                return;
+            case "ver:check":
+                await bot.AnswerCallbackQuery(callback.Id, "Проверяю…", cancellationToken: ct).ConfigureAwait(false);
+                var info = await updates.CheckAsync(ct).ConfigureAwait(false);
+                var msg = info is null
+                    ? $"Обновлений нет. Текущая версия: {updates.CurrentVersion}."
+                    : $"Доступна версия {info.Tag}. Обновление установится автоматически.";
+                await Send(chatId, msg, MainKeyboard, ct).ConfigureAwait(false);
+                return;
+        }
+
+        var reply = await session.ExecuteAsync(CommandParser.Parse(data), ct).ConfigureAwait(false);
         await bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct).ConfigureAwait(false);
-        await bot.SendMessage(chatId, reply, cancellationToken: ct).ConfigureAwait(false);
+        await Send(chatId, reply, MainKeyboard, ct).ConfigureAwait(false);
     }
 
-    private static InlineKeyboardButton Button(string label, string command)
-        => InlineKeyboardButton.WithCallbackData(label, command);
+    private Task Send(long chatId, string text, ReplyMarkup markup, CancellationToken ct)
+        => bot.SendMessage(chatId, text, replyMarkup: markup, cancellationToken: ct);
+
+    private static InlineKeyboardMarkup VersionMenu()
+        => new(new[] { new[] { Btn("⬆️ Проверить обновление", "ver:check") } });
+
+    private static InlineKeyboardMarkup Confirm(string yesLabel, string yesCommand)
+        => new(new[] { new[] { Btn(yesLabel, yesCommand), Btn("Отмена", "menu:cancel") } });
+
+    private static InlineKeyboardButton Btn(string label, string data)
+        => InlineKeyboardButton.WithCallbackData(label, data);
 }
