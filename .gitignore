@@ -16,6 +16,13 @@ artifacts/
 **/appsettings.Secrets.json
 !**/appsettings.template.json
 
+# Code-signing material — private key must never be committed
+signing/
+*.pfx
+*.pfx.b64
+*.cer
+*.snk
+
 # Logs
 logs/
 *.log
