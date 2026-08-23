@@ -34,6 +34,7 @@ public sealed class SessionService
     private readonly ILogger<SessionService> _logger;
 
     private NightWindow _night = NightWindow.Default;
+    private bool _nightEnabled = true;
     private DateTimeOffset _nightBypassUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _lastTickAt;
     private DateTimeOffset _lastNightAlert = DateTimeOffset.MinValue;
@@ -185,8 +186,14 @@ public sealed class SessionService
                 reply = $"✅ Правило: {rule.Rule.PlayMinutes}/{rule.Rule.RestMinutes}. Таймер обновлён.";
                 break;
             case SessionCommand.SetNight night:
-                lock (_sync) { _night = night.Window; _nightBypassUntil = DateTimeOffset.MinValue; }
-                reply = $"🌙 Ночной интервал: {night.Window}.";
+                lock (_sync) { _night = night.Window; _nightEnabled = true; _nightBypassUntil = DateTimeOffset.MinValue; }
+                reply = $"🌙 Ночной интервал: {night.Window} (ночной режим включён).";
+                break;
+            case SessionCommand.SetNightEnabled ne:
+                lock (_sync) { _nightEnabled = ne.Enabled; _nightBypassUntil = DateTimeOffset.MinValue; }
+                reply = ne.Enabled
+                    ? $"🌙 Ночной режим включён ({_night})."
+                    : "🔕 Ночной режим выключен. Ночью ПК не блокируется и не выключается.";
                 break;
             case SessionCommand.ResetTimer:
                 lock (_sync) { _session.ResetToPlayStart(); }
@@ -271,18 +278,30 @@ public sealed class SessionService
 
     public string GetNightWindowText()
     {
-        lock (_sync) { return _night.ToString(); }
+        lock (_sync) { return _nightEnabled ? $"{_night} (включён)" : "выключен"; }
     }
 
     public string StatusText()
     {
         lock (_sync)
         {
-            var night = IsNightActive(_clock.LocalNow) ? "активно" : "не активно";
+            var now = _clock.LocalNow;
             var remaining = _session.IntervalsEnabled
                 ? $"Осталось: {_session.TimeRemaining:hh\\:mm\\:ss}"
                 : "Без ограничений (интервалы отключены)";
-            return $"{Emoji(_session.Status)} {_session.Status}. {remaining}. Ночь ({_night}): {night}.";
+
+            string nightPart;
+            if (!_nightEnabled)
+            {
+                nightPart = "Ночь: 🔕 выключена";
+            }
+            else
+            {
+                var active = _night.Contains(now.TimeOfDay) ? "идёт сейчас" : "сейчас не действует";
+                nightPart = $"Ночь {_night}: {active} (время ПК {now:HH\\:mm})";
+            }
+
+            return $"{Emoji(_session.Status)} {_session.Status}. {remaining}.\n{nightPart}.";
         }
     }
 
@@ -296,7 +315,7 @@ public sealed class SessionService
         lock (_sync) { return _session.TimeRemaining; }
     }
 
-    private bool IsNightActive(DateTimeOffset local) => _night.Contains(local.TimeOfDay);
+    private bool IsNightActive(DateTimeOffset local) => _nightEnabled && _night.Contains(local.TimeOfDay);
 
     private bool IsBypassActive(DateTimeOffset now) => now < _nightBypassUntil;
 
@@ -353,6 +372,7 @@ public sealed class SessionService
                 snapshot.PlayMinutes > 0 ? snapshot.PlayMinutes : ScheduleRule.Default.PlayMinutes,
                 snapshot.RestMinutes > 0 ? snapshot.RestMinutes : ScheduleRule.Default.RestMinutes);
             _night = new NightWindow(snapshot.NightStart, snapshot.NightEnd);
+            _nightEnabled = snapshot.NightEnabled;
 
             lock (_sync)
             {
@@ -390,7 +410,8 @@ public sealed class SessionService
                     RestMinutes = _session.Rule.RestMinutes,
                     NightStart = _night.Start,
                     NightEnd = _night.End,
-                    IntervalsEnabled = _session.IntervalsEnabled
+                    IntervalsEnabled = _session.IntervalsEnabled,
+                    NightEnabled = _nightEnabled
                 };
             }
 

@@ -81,6 +81,7 @@ public sealed class TelegramBotBackgroundService(
 
     private static readonly InlineKeyboardMarkup NightMenu = new(new[]
     {
+        new[] { Btn("🌙 Включить ночь", "/night on"), Btn("🔕 Выключить ночь", "/night off") },
         new[] { Btn("22:00-07:00", "/night 22:00-07:00"), Btn("21:00-08:00", "/night 21:00-08:00") },
         new[] { Btn("23:00-06:00", "/night 23:00-06:00"), Btn("00:00-06:00", "/night 00:00-06:00") }
     });
@@ -230,9 +231,10 @@ public sealed class TelegramBotBackgroundService(
                 return;
             case "🌙 Ночь":
                 await Send(chatId,
-                    $"Ночной интервал сейчас: {session.GetNightWindowText()}\n" +
-                    "Ночью ПК выключается через 1 минуту (см. заметку). Выберите пресет " +
-                    "или отправьте свой: /night 22:00-07:00",
+                    $"Ночной режим: {session.GetNightWindowText()}\n" +
+                    "Ночью ПК блокируется и через 1 минуту выключается.\n" +
+                    "Кнопками ниже: включить/выключить ночь или выбрать окно.\n" +
+                    "Свой интервал: /night 22:00-07:00",
                     NightMenu, ct).ConfigureAwait(false);
                 return;
             case "📦 Версия":

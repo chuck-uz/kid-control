@@ -1,5 +1,6 @@
 using FluentAssertions;
 using KidControl.Application.Abstractions;
+using KidControl.Application.Commands;
 using KidControl.Application.Services;
 using KidControl.Application.Tests.Fakes;
 using KidControl.Contracts;
@@ -55,6 +56,20 @@ public sealed class NightShutdownTests
         await svc.ProcessTickAsync();           // grace elapsed -> shut down
 
         system.Verify(s => s.ShutdownAsync(It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Disabled_Night_Does_Not_Block_Or_Shut_Down_Even_In_Window()
+    {
+        var (svc, clock, system) = Build(hourLocal: 23);
+
+        await svc.ExecuteAsync(new SessionCommand.SetNightEnabled(false));
+        await svc.ProcessTickAsync();
+        clock.Advance(TimeSpan.FromSeconds(61));
+        await svc.ProcessTickAsync();
+
+        svc.GetCurrentState().Status.Should().NotBe("NightBlocked");
+        system.Verify(s => s.ShutdownAsync(It.IsAny<TimeSpan>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

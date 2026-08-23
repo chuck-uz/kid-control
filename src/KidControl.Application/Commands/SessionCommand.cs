@@ -15,6 +15,9 @@ public abstract record SessionCommand
     public sealed record AddTime(int Minutes) : SessionCommand;
     public sealed record SetRule(ScheduleRule Rule) : SessionCommand;
     public sealed record SetNight(NightWindow Window) : SessionCommand;
+
+    /// <summary>Turns the whole night mode on or off (independent of the configured window).</summary>
+    public sealed record SetNightEnabled(bool Enabled) : SessionCommand;
     public sealed record ResetTimer : SessionCommand;
 
     /// <summary>Turns the play/rest limit on or off (night block still applies when off).</summary>
