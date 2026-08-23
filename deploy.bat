@@ -19,6 +19,11 @@ rem  and build.ps1). Change REPO to wherever you pushed v2.
 set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
 
+rem  PRIVATE repo? Put a GitHub token here (classic PAT with 'repo' scope, or a
+rem  fine-grained token with read access to this repo) so the source can be
+rem  downloaded. Without it a private repo returns HTTP 404. Leave empty if public.
+set "KC_GH_TOKEN="
+
 rem  Where to pull source from:
 rem    release = latest published GitHub release (default)
 rem    branch  = head of the branch named in KC_BRANCH (use if there are no releases yet)
@@ -136,6 +141,7 @@ $repo    = $env:KC_REPO
 $mode    = $env:KC_SOURCE_MODE
 $branch  = $env:KC_BRANCH
 $ua      = @{ 'User-Agent' = 'kidcontrol-deploy' }
+if (-not [string]::IsNullOrWhiteSpace($env:KC_GH_TOKEN)) { $ua['Authorization'] = "Bearer $($env:KC_GH_TOKEN)" }
 
 $work    = Join-Path $env:TEMP 'kidcontrol-deploy'
 $srcRoot = Join-Path $work 'source'
@@ -183,7 +189,7 @@ if ($haveDesktop) {
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if ($winget) {
         Info 'Installing Microsoft.DotNet.DesktopRuntime.8 via winget'
-        & winget install --id Microsoft.DotNet.DesktopRuntime.8 -e --silent `
+        & winget install --id Microsoft.DotNet.DesktopRuntime.8 -e --silent --source winget `
             --accept-source-agreements --accept-package-agreements
     } else {
         Write-Host 'WARNING: no machine-wide .NET 8 Desktop Runtime and winget is unavailable.' -ForegroundColor Yellow
