@@ -18,6 +18,9 @@ rem  CONFIG - must match the source you deployed from.
 rem ---------------------------------------------------------------------------
 set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
+rem  PRIVATE repo? GitHub token (PAT with 'repo' scope) so the source can download.
+rem  Without it a private repo returns HTTP 404. Leave empty if public.
+set "KC_GH_TOKEN="
 rem  Source: release = latest GitHub release; branch = head of KC_BRANCH.
 set "KC_SOURCE_MODE=branch"
 set "KC_BRANCH=v2"
@@ -64,6 +67,7 @@ $repo   = $env:KC_REPO
 $mode   = $env:KC_SOURCE_MODE
 $branch = $env:KC_BRANCH
 $ua     = @{ 'User-Agent' = 'kidcontrol-update' }
+if (-not [string]::IsNullOrWhiteSpace($env:KC_GH_TOKEN)) { $ua['Authorization'] = "Bearer $($env:KC_GH_TOKEN)" }
 
 $work    = Join-Path $env:TEMP 'kidcontrol-update'
 $srcRoot = Join-Path $work 'source'
