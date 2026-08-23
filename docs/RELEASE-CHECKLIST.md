@@ -8,17 +8,27 @@ Release с артефактами. Ниже — что проверить до, 
 
 ## 0. Одноразовая настройка (перед самым первым релизом)
 
-- [ ] **Сертификат подписи кода.** Получи code-signing `.pfx` (OV/EV). Он критичен:
-      self-update запускает скачанный инсталлятор **под SYSTEM**, и `UpdateConfig.RequireSignature`
-      доверяет только подписи с нужным отпечатком.
-- [ ] **Секреты репозитория** (Settings → Secrets and variables → Actions):
-  - [ ] `CODE_SIGNING_PFX_BASE64` — `.pfx` в base64 (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`).
-  - [ ] `CODE_SIGNING_PFX_PASSWORD` — пароль от `.pfx`.
-  - Без них workflow соберёт **неподписанные** бинарники (с предупреждением) — для боевого релиза так нельзя.
-- [ ] **SHA-256 отпечаток** сертификата запиши — он пойдёт в установки как
-      `--thumbprint` (тихая установка) или в поле мастера, попадёт в `UpdateConfig.TrustedThumbprint`
-      и позволит будущим self-update принимать твой подписанный инсталлятор.
+**Быстрый путь (Variant A, самоподпись):** на Windows-dev-машине запусти
+```powershell
+pwsh -File setup-signing.ps1 -Repo chuck-uz/kid-control
+```
+Скрипт создаст самоподписанный серт, экспортирует `signing/kidcontrol-codesign.pfx` (приватный) и
+`signing/kidcontrol-codesign.cer` (публичный), посчитает **правильный** SHA-256-отпечаток
+(над DER-байтами — именно его пинует верификатор), и заведёт секреты
+`CODE_SIGNING_PFX_BASE64` / `CODE_SIGNING_PFX_PASSWORD` в репозиторий. Отпечаток он распечатает.
+
+Ручной путь / детали:
+- [ ] **Сертификат.** Variant A — `setup-signing.ps1` (бесплатно, приватное использование).
+      Variant B — купить OV/EV code-signing (нет предупреждений SmartScreen, чистая цепочка).
+- [ ] **Секреты репозитория** (Settings → Secrets → Actions): `CODE_SIGNING_PFX_BASE64`,
+      `CODE_SIGNING_PFX_PASSWORD`. Без них workflow соберёт **неподписанные** бинарники (с предупреждением).
+- [ ] **SHA-256 отпечаток** запиши — он идёт в установку (`deploy.bat`: `KC_THUMBPRINT=...`,
+      или `--thumbprint`), попадает в `Update.TrustedThumbprint`, и self-update принимает только твой релиз.
+- [ ] **Variant A на целевых ПК:** `.cer` нужно доверить. `deploy.bat` делает это сам, если задать
+      `KC_CERT_FILE=<путь к kidcontrol-codesign.cer>` (импорт в Trusted Root + Trusted Publisher).
 - [ ] Реши видимость Release (репозиторий приватный → релизы тоже видны только тебе).
+
+> ⚠️ **НЕ коммить `signing/` и `*.pfx`** — приватный ключ. Папка уже в `.gitignore`.
 
 ## 1. Pre-flight (перед каждым релизом)
 

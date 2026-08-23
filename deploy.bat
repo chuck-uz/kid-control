@@ -33,7 +33,17 @@ set "KC_BOT_TOKEN="
 set "KC_ADMIN_IDS="
 set "KC_NIGHT_START=22:00:00"
 set "KC_NIGHT_END=07:00:00"
-rem  Optional: SHA-256 thumbprint of the trusted code-signing cert for self-update.
+rem  --- Code signing (Variant A: self-signed cert) -------------------------
+rem  For automatic self-update to accept your signed releases, this target must
+rem  (1) trust your signing certificate and (2) know its SHA-256 thumbprint.
+rem
+rem  KC_CERT_FILE : path to the PUBLIC certificate (kidcontrol-codesign.cer produced
+rem                 by setup-signing.ps1). If set, deploy.bat imports it into the
+rem                 machine's Trusted Root + Trusted Publishers so the update
+rem                 signature chain builds. Leave empty to skip.
+rem  KC_THUMBPRINT: SHA-256 thumbprint printed by setup-signing.ps1. Written into
+rem                 appsettings (Update.TrustedThumbprint) so self-update pins it.
+set "KC_CERT_FILE="
 set "KC_THUMBPRINT="
 rem ---------------------------------------------------------------------------
 
@@ -72,6 +82,12 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host $m -ForegroundColor Green }
+
+# Sets a property on a PSCustomObject, adding it if absent.
+function Set-OrAdd($obj, $name, $value) {
+    if ($obj.PSObject.Properties.Name -contains $name) { $obj.$name = $value }
+    else { $obj | Add-Member -NotePropertyName $name -NotePropertyValue $value }
+}
 
 $owner   = $env:KC_OWNER
 $repo    = $env:KC_REPO
@@ -132,6 +148,20 @@ if ($haveDesktop) {
         Write-Host '         Install it (x64) from https://dotnet.microsoft.com/download/dotnet/8.0' -ForegroundColor Yellow
         Write-Host '         or the KidControl service will not start after install.' -ForegroundColor Yellow
     }
+}
+
+# ---- 1c. Trust the signing certificate (Variant A: self-signed) ----------
+# Self-update verifies the downloaded installer's Authenticode chain, so the
+# signer certificate must be trusted on THIS machine. Import the public .cer into
+# LocalMachine\Root (chain root) and TrustedPublisher (no publisher prompt).
+if (-not [string]::IsNullOrWhiteSpace($env:KC_CERT_FILE)) {
+    if (-not (Test-Path $env:KC_CERT_FILE)) {
+        throw "KC_CERT_FILE '$($env:KC_CERT_FILE)' not found."
+    }
+    Info "Trusting signing certificate: $($env:KC_CERT_FILE)"
+    Import-Certificate -FilePath $env:KC_CERT_FILE -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+    Import-Certificate -FilePath $env:KC_CERT_FILE -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
+    Ok 'Signing certificate trusted (Root + TrustedPublisher).'
 }
 
 # ---- 2. Resolve and download the source ----------------------------------
@@ -199,6 +229,33 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     }
     $p = Start-Process -FilePath $installer -ArgumentList $argList -PassThru -Wait
     if ($p.ExitCode -ne 0) { throw "Silent install exited with code $($p.ExitCode)." }
+}
+
+# ---- 5. Ensure TrustedThumbprint is applied (works for GUI installs too) --
+# The GUI wizard has no thumbprint field, so write it straight into the deployed
+# appsettings.json and restart the service. In silent mode the installer already
+# wrote it, so this is an idempotent no-op there.
+if (-not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)) {
+    $cfgPath = Join-Path $env:ProgramData 'KidControl\appsettings.json'
+    if (Test-Path $cfgPath) {
+        $json = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Json
+        if (-not ($json.PSObject.Properties.Name -contains 'Update')) {
+            $json | Add-Member -NotePropertyName Update -NotePropertyValue ([pscustomobject]@{})
+        }
+        $current = if ($json.Update.PSObject.Properties.Name -contains 'TrustedThumbprint') { $json.Update.TrustedThumbprint } else { $null }
+        if ($current -ne $env:KC_THUMBPRINT) {
+            Set-OrAdd $json.Update 'TrustedThumbprint' $env:KC_THUMBPRINT
+            Set-OrAdd $json.Update 'RequireSignature' $true
+            ($json | ConvertTo-Json -Depth 16) | Set-Content -LiteralPath $cfgPath -Encoding utf8
+            Info 'Applied TrustedThumbprint to appsettings.json; restarting service'
+            Restart-Service -Name 'KidControlService' -Force -ErrorAction SilentlyContinue
+            Ok 'Self-update trust configured.'
+        } else {
+            Ok 'TrustedThumbprint already configured.'
+        }
+    } else {
+        Write-Host "WARNING: $cfgPath not found; could not set TrustedThumbprint. Self-update will reject updates until it is set." -ForegroundColor Yellow
+    }
 }
 
 Ok 'KidControl installed successfully.'
