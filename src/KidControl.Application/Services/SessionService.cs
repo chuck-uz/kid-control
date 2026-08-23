@@ -147,6 +147,12 @@ public sealed class SessionService
                 lock (_sync) { _session.ResetToPlayStart(); }
                 reply = "Таймер сброшен на игровой интервал.";
                 break;
+            case SessionCommand.SetIntervals si:
+                lock (_sync) { if (si.Enabled) _session.EnableIntervals(); else _session.DisableIntervals(); }
+                reply = si.Enabled
+                    ? "✅ Интервалы включены. Действует режим игра/отдых."
+                    : "♾️ Интервалы отключены. Без ограничений по времени (ночной режим по-прежнему действует).";
+                break;
             case SessionCommand.Pause:
                 lock (_sync) { _session.Pause(); }
                 _system.StopUi();
@@ -252,7 +258,7 @@ public sealed class SessionService
     }
 
     private SessionStateDto Snapshot(bool isNight) =>
-        new(_session.Status.ToString(), _session.TimeRemaining, isNight);
+        new(_session.Status.ToString(), _session.TimeRemaining, isNight, !_session.IntervalsEnabled);
 
     private static string Emoji(SessionStatus status) => status switch
     {
@@ -298,7 +304,7 @@ public sealed class SessionService
 
             lock (_sync)
             {
-                _session = Session.Restore(snapshot.Status, snapshot.TimeRemaining, rule);
+                _session = Session.Restore(snapshot.Status, snapshot.TimeRemaining, rule, snapshot.IntervalsEnabled);
 
                 // Account for time elapsed while the service was down.
                 var delta = _clock.LocalNow - snapshot.LastUpdated;
@@ -331,7 +337,8 @@ public sealed class SessionService
                     PlayMinutes = _session.Rule.PlayMinutes,
                     RestMinutes = _session.Rule.RestMinutes,
                     NightStart = _night.Start,
-                    NightEnd = _night.End
+                    NightEnd = _night.End,
+                    IntervalsEnabled = _session.IntervalsEnabled
                 };
             }
 

@@ -4,4 +4,5 @@ namespace KidControl.Contracts;
 public sealed record SessionStateDto(
     string Status,
     TimeSpan TimeRemaining,
-    bool IsNightMode);
+    bool IsNightMode,
+    bool IsUnlimited = false);

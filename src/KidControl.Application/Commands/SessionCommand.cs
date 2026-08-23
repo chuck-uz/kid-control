@@ -16,6 +16,10 @@ public abstract record SessionCommand
     public sealed record SetRule(ScheduleRule Rule) : SessionCommand;
     public sealed record SetNight(NightWindow Window) : SessionCommand;
     public sealed record ResetTimer : SessionCommand;
+
+    /// <summary>Turns the play/rest limit on or off (night block still applies when off).</summary>
+    public sealed record SetIntervals(bool Enabled) : SessionCommand;
+
     public sealed record Pause : SessionCommand;
     public sealed record Resume : SessionCommand;
     public sealed record ShutdownPc : SessionCommand;
