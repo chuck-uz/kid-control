@@ -22,8 +22,8 @@ set "KC_REPO=kid-control"
 rem  Where to pull source from:
 rem    release = latest published GitHub release (default; "свежий релиз")
 rem    branch  = head of the branch named in KC_BRANCH (use if there are no releases yet)
-set "KC_SOURCE_MODE=release"
-set "KC_BRANCH=main"
+set "KC_SOURCE_MODE=branch"
+set "KC_BRANCH=v2"
 
 rem  Install mode:
 rem    - Leave KC_BOT_TOKEN empty  -> the graphical installer wizard opens
