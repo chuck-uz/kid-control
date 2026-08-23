@@ -103,6 +103,9 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
           $zip = "publish/KidControl-Setup-$tag.zip"
           Compress-Archive -Path "publish/Installer/*" -DestinationPath $zip -Force
+          # Also publish a fixed-name copy so deploy.bat can fetch the newest via the
+          # rate-limit-free URL  .../releases/latest/download/KidControl-Setup.zip
+          Copy-Item $zip "publish/KidControl-Setup.zip" -Force
           "KC_SETUP_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # ── Checksums ─────────────────────────────────────────────────────────────
@@ -132,6 +135,7 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             ${{ env.KC_SETUP_ZIP }}
+            publish/KidControl-Setup.zip
             publish/Installer/KidControl.Installer.exe
             publish/ServiceHost/KidControl.ServiceHost.exe
             publish/UiHost/KidControl.UiHost.exe
