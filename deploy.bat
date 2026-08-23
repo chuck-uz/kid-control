@@ -55,6 +55,10 @@ rem  Self-update signature policy written into the installed config:
 rem    empty or true = require a valid signature (secure; needs signed releases + KC_THUMBPRINT)
 rem    false         = accept UNSIGNED releases (quick auto-update on a public repo; less strict)
 set "KC_REQUIRE_SIGNATURE="
+
+rem  How often the service checks GitHub for a new release (HH:MM:SS). Empty = default 6h.
+rem  For testing auto-update set e.g. 00:01:00 (1 minute). Change back afterwards.
+set "KC_CHECK_INTERVAL="
 rem ---------------------------------------------------------------------------
 
 setlocal EnableExtensions EnableDelayedExpansion
@@ -288,10 +292,11 @@ if ([string]::IsNullOrWhiteSpace($token)) {
 # The GUI wizard cannot set these, so write them straight into the deployed config
 # and restart the service. Writes only what you provided (thumbprint / signature
 # policy / private-repo token).
-$applyThumb = -not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)
-$applyReq   = -not [string]::IsNullOrWhiteSpace($env:KC_REQUIRE_SIGNATURE)
-$applyTok   = -not [string]::IsNullOrWhiteSpace($env:KC_GH_TOKEN)
-if ($applyThumb -or $applyReq -or $applyTok) {
+$applyThumb    = -not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)
+$applyReq      = -not [string]::IsNullOrWhiteSpace($env:KC_REQUIRE_SIGNATURE)
+$applyTok      = -not [string]::IsNullOrWhiteSpace($env:KC_GH_TOKEN)
+$applyInterval = -not [string]::IsNullOrWhiteSpace($env:KC_CHECK_INTERVAL)
+if ($applyThumb -or $applyReq -or $applyTok -or $applyInterval) {
     $cfgPath = Join-Path $env:ProgramData 'KidControl\appsettings.json'
     if (Test-Path $cfgPath) {
         $json = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Json
@@ -306,6 +311,7 @@ if ($applyThumb -or $applyReq -or $applyTok) {
         }
         # Store a token only for a PRIVATE repo; on a public repo leave KC_GH_TOKEN empty.
         if ($applyTok) { Set-OrAdd $json.Update 'GitHubToken' $env:KC_GH_TOKEN }
+        if ($applyInterval) { Set-OrAdd $json.Update 'CheckInterval' $env:KC_CHECK_INTERVAL }
 
         ($json | ConvertTo-Json -Depth 16) | Set-Content -LiteralPath $cfgPath -Encoding utf8
         Info 'Applied self-update settings to appsettings.json; restarting service'
