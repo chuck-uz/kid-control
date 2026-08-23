@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================================
-rem  KidControl — update.bat
+rem  KidControl - update.bat
 rem  Downloads the latest version from GitHub, builds it, and performs a
 rem  BINARY-ONLY update of an already-installed instance.
 rem
@@ -14,7 +14,7 @@ rem         installer /update. Same batch/PowerShell polyglot as deploy.bat.
 rem ============================================================================
 
 rem ---------------------------------------------------------------------------
-rem  CONFIG — must match the source you deployed from.
+rem  CONFIG - must match the source you deployed from.
 rem ---------------------------------------------------------------------------
 set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
@@ -39,7 +39,7 @@ echo Config and the current timer will be preserved.
 echo(
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$raw = Get-Content -Raw -LiteralPath '%~f0'; $m = '::PS' + '_START::'; $i = $raw.LastIndexOf($m); Invoke-Expression $raw.Substring($i + $m.Length)"
+  "$raw = Get-Content -Raw -Encoding UTF8 -LiteralPath '%~f0'; $m = '::PS' + '_START::'; $i = $raw.LastIndexOf($m); Invoke-Expression $raw.Substring($i + $m.Length)"
 
 set "RC=%errorlevel%"
 echo(
@@ -132,7 +132,7 @@ if (-not $svc) {
     throw "KidControlService is not installed. Run deploy.bat for a first-time install; update.bat only updates an existing one."
 }
 
-Info 'Building (restore, build, test, publish) — this can take a few minutes'
+Info 'Building (restore, build, test, publish) - this can take a few minutes'
 & $build
 
 $installer = Join-Path $root 'publish\Installer\KidControl.Installer.exe'
@@ -140,7 +140,7 @@ if (-not (Test-Path $installer)) { throw "Installer not found at $installer afte
 Ok "Built installer: $installer"
 
 # ---- 4. Binary-only update (config + timer preserved) --------------------
-Info 'Applying update (/update — appsettings.json and session_state.json are kept)'
+Info 'Applying update (/update - appsettings.json and session_state.json are kept)'
 $sourceDir = Join-Path $root 'publish\Installer'
 $argList = @('/update', '--source', ('"' + $sourceDir + '"'))
 $p = Start-Process -FilePath $installer -ArgumentList $argList -PassThru -Wait

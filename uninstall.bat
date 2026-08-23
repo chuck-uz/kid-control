@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================================
-rem  KidControl — uninstall.bat
+rem  KidControl - uninstall.bat
 rem  Fully removes an installed KidControl instance. Self-contained: no source,
 rem  no build, no network. Just run it (it self-elevates).
 rem
@@ -75,7 +75,7 @@ goto waitstop
 :stopped
 echo       stopped
 
-rem --- 3. Kill the UI process (never the service — see SAFETY note) -----------
+rem --- 3. Kill the UI process (never the service - see SAFETY note) -----------
 echo [3/7] Terminating UI process...
 taskkill /F /IM "%KC_UI_PROC%" /T >nul 2>&1
 if %errorlevel%==0 (echo       UI terminated) else (echo       UI not running ^(ok^))
