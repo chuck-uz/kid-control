@@ -6,6 +6,14 @@ public sealed class UpdateConfig
 
     public bool Enabled { get; init; } = true;
 
+    /// <summary>
+    /// When true, a newer verified release is downloaded and installed automatically (the
+    /// service restarts on the new version, preserving config and the child's timer). When
+    /// false, admins are only notified over Telegram. Auto-install still enforces the
+    /// signature/thumbprint checks, so an unsigned or untrusted release is never run.
+    /// </summary>
+    public bool AutoInstall { get; init; } = true;
+
     /// <summary>GitHub owner. Fixed at deploy time — NOT taken from an attacker-writable source.</summary>
     public string Owner { get; init; } = "chuck-uz";
 
