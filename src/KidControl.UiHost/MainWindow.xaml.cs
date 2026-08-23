@@ -59,6 +59,11 @@ public partial class MainWindow : Window
             {
                 Dispatcher.Invoke(async () => await TransitionToStateAsync(_viewModel.IsBlocked));
             }
+            else if (args.PropertyName == nameof(MainViewModel.IsUnlimited))
+            {
+                // Show/hide the widget when the "no limit" mode toggles (only affects widget mode).
+                Dispatcher.Invoke(() => { if (!_viewModel.IsBlocked) ApplyVisualMode(false); });
+            }
             else if (args.PropertyName == nameof(MainViewModel.ProgressPercent))
             {
                 Dispatcher.Invoke(UpdateWidgetProgressRing);
@@ -170,7 +175,8 @@ public partial class MainWindow : Window
             Width = WidgetWidth;
             Height = WidgetHeight;
             Background = Brushes.Transparent;
-            WidgetBorder.Visibility = Visibility.Visible;
+            // No time limit in effect -> hide the widget entirely (nothing to show).
+            WidgetBorder.Visibility = _viewModel.IsUnlimited ? Visibility.Collapsed : Visibility.Visible;
             BlockOverlay.Visibility = Visibility.Collapsed;
             MoveWidgetToCorner();
             ApplyClickThrough(clickThrough: true);
