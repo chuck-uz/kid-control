@@ -20,7 +20,7 @@ namespace KidControl.UiHost.Services;
 public sealed class UiCommandServer : IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
-    private MediaPlayer? _player; // kept alive so playback isn't GC'd
+    private readonly List<MediaPlayer> _players = new(); // kept alive so playback isn't GC'd
     private bool _started;
 
     public void Start()
@@ -83,8 +83,9 @@ public sealed class UiCommandServer : IDisposable
                     CaptureScreen(arg);
                     return UiCommandProtocol.Ok;
                 case UiCommandProtocol.Play:
-                    await PlayAsync(arg).ConfigureAwait(false);
-                    return UiCommandProtocol.Ok;
+                    return await PlayAsync(arg).ConfigureAwait(false)
+                        ? UiCommandProtocol.Ok
+                        : Err("playback failed (unsupported format? OGG/Opus voice needs the free 'Web Media Extensions' from Microsoft Store)");
                 default:
                     return Err($"unknown verb '{verb}'");
             }
@@ -126,26 +127,52 @@ public sealed class UiCommandServer : IDisposable
 
     // ─── Audio playback ───────────────────────────────────────────────────────
 
-    private Task PlayAsync(string path)
+    private async Task<bool> PlayAsync(string path)
     {
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException("audio file not found", path);
+            Log.Warning("Play: file not found {Path}", path);
+            return false;
         }
 
-        var app = Application.Current
-            ?? throw new InvalidOperationException("no WPF application");
-
-        // MediaPlayer must live on a Dispatcher thread; run on the UI thread and keep the
-        // reference alive. NOTE: MediaPlayer uses Windows Media Foundation — MP3/WAV/MP4 play
-        // out of the box; OGG/Opus (Telegram voice notes) need the free "Web Media Extensions".
-        return app.Dispatcher.InvokeAsync(() =>
+        var app = Application.Current;
+        if (app is null)
         {
-            _player ??= new MediaPlayer();
-            _player.Stop();
-            _player.Open(new Uri(path, UriKind.Absolute));
-            _player.Play();
-        }).Task;
+            return false;
+        }
+
+        // A fresh MediaPlayer per clip so we can hook its open/fail events. MediaPlayer uses
+        // Windows Media Foundation — MP3/WAV/MP4 play out of the box; OGG/Opus (Telegram voice)
+        // need the free "Web Media Extensions". We wait for MediaOpened (success) or
+        // MediaFailed (unsupported codec) so the caller gets an honest result.
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await app.Dispatcher.InvokeAsync(() =>
+        {
+            var player = new MediaPlayer();
+            _players.Add(player);
+
+            player.MediaOpened += (_, _) => { player.Play(); tcs.TrySetResult(true); };
+            player.MediaFailed += (_, e) =>
+            {
+                Log.Warning(e.ErrorException, "MediaFailed for {Path}", path);
+                tcs.TrySetResult(false);
+            };
+            player.MediaEnded += (_, _) => { player.Close(); _players.Remove(player); };
+
+            try
+            {
+                player.Open(new Uri(path, UriKind.Absolute));
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "MediaPlayer.Open threw for {Path}", path);
+                tcs.TrySetResult(false);
+            }
+        });
+
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+        return completed == tcs.Task && tcs.Task.Result;
     }
 
     public void Dispose()
