@@ -18,7 +18,11 @@
     <Product>KidControl</Product>
     <Company>KidControl</Company>
     <Authors>KidControl</Authors>
-    <!-- Reproducible builds: MinVer version is pinned, not floating. Tag vX.Y.Z to release. -->
+    <!-- Reproducible builds: MinVer version is pinned, not floating. Tag vX.Y.Z to release.
+         MinVerTagPrefix=v is REQUIRED so a "v2.0.0" tag stamps version 2.0.0; without it
+         MinVer ignores the v-prefixed tag and every build reports 0.0.0-alpha, which would
+         silently break the self-update version comparison. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 
   <ItemGroup>

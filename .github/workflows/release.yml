@@ -1,10 +1,16 @@
 name: Release
 
-# Fires on a version tag. MinVer turns the tag into the assembly version.
+# Fires on a version tag such as v2.0.0. MinVer (MinVerTagPrefix=v) turns the tag
+# into the assembly version, which the self-update path compares against.
 on:
   push:
     tags:
       - 'v*'
+
+# A second push to the same tag supersedes the first run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -18,6 +24,16 @@ jobs:
         with:
           fetch-depth: 0 # MinVer needs full history to resolve the version from the tag.
 
+      # Reject malformed tags early so we never publish a release named "vfoo".
+      - name: Validate tag format
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Tag '$tag' is not a valid vMAJOR.MINOR.PATCH[-prerelease] version."
+          }
+          Write-Host "Releasing tag $tag"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -29,16 +45,27 @@ jobs:
         shell: pwsh
         run: .\build.ps1
 
+      # Confirm the tag actually stamped the binaries (catches a missing MinVerTagPrefix).
+      - name: Verify stamped version matches tag
+        shell: pwsh
+        run: |
+          $exe = "publish/Installer/KidControl.Installer.exe"
+          $fv  = (Get-Item $exe).VersionInfo.ProductVersion
+          $tag = $env:GITHUB_REF_NAME.TrimStart('v')
+          Write-Host "Installer ProductVersion=$fv  tag=$tag"
+          if (-not $fv.StartsWith($tag)) {
+            throw "Binary version '$fv' does not match tag '$tag'. Check MinVerTagPrefix=v and fetch-depth:0."
+          }
+
       # ── Code signing ────────────────────────────────────────────────────────
-      # The self-update path executes a downloaded installer AS SYSTEM. An unsigned
-      # (or hash-unverified) installer on that path is a remote-code-execution vector:
+      # The self-update path executes a downloaded installer AS SYSTEM, so an unsigned
+      # (or hash-unverified) installer there is a remote-code-execution vector.
       # UpdateConfig.RequireSignature + TrustedThumbprint only help if releases are
-      # actually signed. This step signs all three executables with a code-signing
-      # certificate supplied via repository secrets.
+      # actually signed. This signs every KidControl*.exe under publish/ (including the
+      # payload copies staged next to the installer), using a cert from repo secrets.
       #
-      # It is guarded: if CODE_SIGNING_PFX_BASE64 is absent the step is a clear no-op
-      # and prints a warning, so forks/PR builds still produce artifacts — but a real
-      # release MUST provide the secret. An unsigned release is a security risk.
+      # Guarded: with no CODE_SIGNING_PFX_BASE64 the step is a clear no-op + warning, so
+      # forks still build — but a real release MUST provide it. Unsigned = security risk.
       - name: Sign executables
         shell: pwsh
         env:
@@ -53,30 +80,38 @@ jobs:
           $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
           [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_BASE64))
 
-          # Locate signtool from the installed Windows SDK.
           $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
           if (-not $signtool) { throw "signtool.exe not found on the runner." }
 
-          $targets = @(
-            "publish/Installer/KidControl.Installer.exe",
-            "publish/ServiceHost/KidControl.ServiceHost.exe",
-            "publish/UiHost/KidControl.UiHost.exe"
-          )
+          # Sign every KidControl executable, including the payload copies inside
+          # publish/Installer so the zipped setup is fully signed.
+          $targets = Get-ChildItem -Path "publish" -Recurse -Filter "KidControl*.exe"
           foreach ($t in $targets) {
             & $signtool sign /f $pfxPath /p $env:PFX_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $t
-            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $t" }
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $t.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($t.FullName)" }
           }
-
           Remove-Item $pfxPath -Force
 
-      # ── Checksums ───────────────────────────────────────────────────────────
+      # ── Package a single self-contained setup zip ─────────────────────────────
+      # publish/Installer already holds the installer + ServiceHost.exe + UiHost.exe
+      # (staged by build.ps1), so this zip is a one-download, offline-capable setup.
+      - name: Package setup zip
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $zip = "publish/KidControl-Setup-$tag.zip"
+          Compress-Archive -Path "publish/Installer/*" -DestinationPath $zip -Force
+          "KC_SETUP_ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ── Checksums ─────────────────────────────────────────────────────────────
       # Computed AFTER signing so the hashes match exactly what users download.
       - name: Generate SHA256SUMS.txt
         shell: pwsh
         run: |
           $files = @(
+            $env:KC_SETUP_ZIP,
             "publish/Installer/KidControl.Installer.exe",
             "publish/ServiceHost/KidControl.ServiceHost.exe",
             "publish/UiHost/KidControl.UiHost.exe"
@@ -93,7 +128,10 @@ jobs:
         with:
           generate_release_notes: true
           fail_on_unmatched_files: true
+          # Tags with a prerelease suffix (v2.0.0-rc1) are marked as pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
+            ${{ env.KC_SETUP_ZIP }}
             publish/Installer/KidControl.Installer.exe
             publish/ServiceHost/KidControl.ServiceHost.exe
             publish/UiHost/KidControl.UiHost.exe
