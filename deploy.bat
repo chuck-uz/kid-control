@@ -50,6 +50,11 @@ rem  KC_THUMBPRINT: SHA-256 thumbprint printed by setup-signing.ps1. Written int
 rem                 appsettings (Update.TrustedThumbprint) so self-update pins it.
 set "KC_CERT_FILE="
 set "KC_THUMBPRINT="
+
+rem  Self-update signature policy written into the installed config:
+rem    empty or true = require a valid signature (secure; needs signed releases + KC_THUMBPRINT)
+rem    false         = accept UNSIGNED releases (quick auto-update on a public repo; less strict)
+set "KC_REQUIRE_SIGNATURE="
 rem ---------------------------------------------------------------------------
 
 setlocal EnableExtensions EnableDelayedExpansion
@@ -279,30 +284,35 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     if ($p.ExitCode -ne 0) { throw "Silent install exited with code $($p.ExitCode)." }
 }
 
-# ---- 5. Ensure TrustedThumbprint is applied (works for GUI installs too) --
-# The GUI wizard has no thumbprint field, so write it straight into the deployed
-# appsettings.json and restart the service. In silent mode the installer already
-# wrote it, so this is an idempotent no-op there.
-if (-not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)) {
+# ---- 5. Apply self-update settings into appsettings (mode-independent) -----
+# The GUI wizard cannot set these, so write them straight into the deployed config
+# and restart the service. Writes only what you provided (thumbprint / signature
+# policy / private-repo token).
+$applyThumb = -not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)
+$applyReq   = -not [string]::IsNullOrWhiteSpace($env:KC_REQUIRE_SIGNATURE)
+$applyTok   = -not [string]::IsNullOrWhiteSpace($env:KC_GH_TOKEN)
+if ($applyThumb -or $applyReq -or $applyTok) {
     $cfgPath = Join-Path $env:ProgramData 'KidControl\appsettings.json'
     if (Test-Path $cfgPath) {
         $json = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Json
         if (-not ($json.PSObject.Properties.Name -contains 'Update')) {
             $json | Add-Member -NotePropertyName Update -NotePropertyValue ([pscustomobject]@{})
         }
-        $current = if ($json.Update.PSObject.Properties.Name -contains 'TrustedThumbprint') { $json.Update.TrustedThumbprint } else { $null }
-        if ($current -ne $env:KC_THUMBPRINT) {
-            Set-OrAdd $json.Update 'TrustedThumbprint' $env:KC_THUMBPRINT
+        if ($applyThumb) { Set-OrAdd $json.Update 'TrustedThumbprint' $env:KC_THUMBPRINT }
+        if ($applyReq) {
+            Set-OrAdd $json.Update 'RequireSignature' ($env:KC_REQUIRE_SIGNATURE -match '^(true|1|yes)$')
+        } elseif ($applyThumb) {
             Set-OrAdd $json.Update 'RequireSignature' $true
-            ($json | ConvertTo-Json -Depth 16) | Set-Content -LiteralPath $cfgPath -Encoding utf8
-            Info 'Applied TrustedThumbprint to appsettings.json; restarting service'
-            Restart-Service -Name 'KidControlService' -Force -ErrorAction SilentlyContinue
-            Ok 'Self-update trust configured.'
-        } else {
-            Ok 'TrustedThumbprint already configured.'
         }
+        # Store a token only for a PRIVATE repo; on a public repo leave KC_GH_TOKEN empty.
+        if ($applyTok) { Set-OrAdd $json.Update 'GitHubToken' $env:KC_GH_TOKEN }
+
+        ($json | ConvertTo-Json -Depth 16) | Set-Content -LiteralPath $cfgPath -Encoding utf8
+        Info 'Applied self-update settings to appsettings.json; restarting service'
+        Restart-Service -Name 'KidControlService' -Force -ErrorAction SilentlyContinue
+        Ok 'Self-update settings configured.'
     } else {
-        Write-Host "WARNING: $cfgPath not found; could not set TrustedThumbprint. Self-update will reject updates until it is set." -ForegroundColor Yellow
+        Write-Host "WARNING: $cfgPath not found; could not apply self-update settings." -ForegroundColor Yellow
     }
 }
 
