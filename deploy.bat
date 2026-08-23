@@ -47,37 +47,79 @@ set "KC_CERT_FILE="
 set "KC_THUMBPRINT="
 rem ---------------------------------------------------------------------------
 
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
-rem --- Require administrator (needed to register the Windows service) ---------
+rem --- Debug log ------------------------------------------------------------
+set "KC_LOG=%TEMP%\kidcontrol-deploy.log"
+>>"%KC_LOG%" echo(
+call :log "===== deploy.bat started ====="
+call :log "script = %~f0"
+call :log "cwd    = %CD%"
+call :log "user   = %USERNAME%    log = %KC_LOG%"
+
+rem --- Require administrator (needed to register the Windows service) --------
 net session >nul 2>&1
-if %errorlevel% NEQ 0 (
-    echo Requesting administrator privileges...
+if !errorlevel! NEQ 0 (
+    call :log "not elevated -> requesting UAC elevation"
     powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    if !errorlevel! NEQ 0 call :log "ERROR: failed to start elevated process, errorlevel !errorlevel!"
+    echo(
+    echo Requested administrator rights. If no elevated window appeared, UAC was declined.
+    echo Debug log: %KC_LOG%
+    echo(
+    pause
     exit /b
 )
+call :log "running elevated: OK"
 
 echo(
 echo === KidControl deploy: %KC_OWNER%/%KC_REPO% (%KC_SOURCE_MODE%) ===
+echo Debug log: %KC_LOG%
 echo(
 
-rem --- Hand off to the embedded PowerShell payload ---------------------------
+rem --- Verify PowerShell is available ---------------------------------------
+where powershell >nul 2>&1
+if !errorlevel! NEQ 0 (
+    call :log "ERROR: powershell.exe not found in PATH"
+    echo powershell.exe not found in PATH. Cannot continue.
+    echo(
+    pause
+    exit /b 9
+)
+
+rem --- Hand off to the embedded PowerShell payload --------------------------
+call :log "launching PowerShell payload"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$raw = Get-Content -Raw -LiteralPath '%~f0'; $m = '::PS' + '_START::'; $i = $raw.LastIndexOf($m); Invoke-Expression $raw.Substring($i + $m.Length)"
 
-set "RC=%errorlevel%"
+set "RC=!errorlevel!"
+call :log "PowerShell payload exit code = !RC!"
 echo(
-if "%RC%"=="0" (
+if "!RC!"=="0" (
     echo === Done. ===
 ) else (
-    echo === FAILED (exit %RC%). See messages above. ===
+    echo === FAILED ^(exit !RC!^). See messages above and %KC_LOG% ===
 )
 echo(
 pause
-exit /b %RC%
+exit /b !RC!
+
+rem --- Simple logger: echoes to console and appends to the debug log ---------
+:log
+echo [%TIME%] %~1
+>>"%KC_LOG%" echo [%DATE% %TIME%] %~1
+goto :eof
 
 ::PS_START::
 $ErrorActionPreference = 'Stop'
+try { if ($env:KC_LOG) { Start-Transcript -Path $env:KC_LOG -Append -ErrorAction SilentlyContinue | Out-Null } } catch { }
+# Any terminating error lands here: log it clearly and return a non-zero exit code.
+trap {
+    Write-Host "FATAL: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.InvocationInfo) { Write-Host ("  at " + $_.InvocationInfo.PositionMessage) -ForegroundColor DarkYellow }
+    try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+    exit 1
+}
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
@@ -259,4 +301,5 @@ if (-not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)) {
 }
 
 Ok 'KidControl installed successfully.'
+try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
 exit 0
