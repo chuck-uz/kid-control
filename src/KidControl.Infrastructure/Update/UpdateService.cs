@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Reflection;
 using KidControl.Application.Abstractions;
 using KidControl.Application.Models;
@@ -91,25 +92,56 @@ public sealed class UpdateService(
             stageDir = Path.Combine(AppPaths.UpdateStagingRoot, safeTag, runId);
             Directory.CreateDirectory(stageDir);
 
-            var installerPath = Path.Combine(stageDir, SanitizeFileName(info.AssetName));
-            logger.LogInformation("Update: downloading {Tag} → {Path}", tag, installerPath);
+            var assetName = SanitizeFileName(info.AssetName);
+            var artifactPath = Path.Combine(stageDir, assetName);
+            logger.LogInformation("Update: downloading {Tag} → {Path}", tag, artifactPath);
 
-            var written = await client.DownloadAssetAsync(info.DownloadUrl, installerPath, ct).ConfigureAwait(false);
+            var written = await client.DownloadAssetAsync(info.DownloadUrl, artifactPath, ct).ConfigureAwait(false);
             if (info.AssetSize > 0 && written != info.AssetSize)
             {
                 throw new InvalidOperationException(
                     $"Downloaded size {written} does not match expected {info.AssetSize}.");
             }
 
-            await VerifyBeforeExecuteAsync(installerPath, info, ct).ConfigureAwait(false);
+            // Hash-pin the downloaded artifact (the .zip or .exe) before we open/run anything.
+            await VerifyHashAsync(artifactPath, info, ct).ConfigureAwait(false);
 
+            // Resolve the installer to run and the directory it copies payload binaries from.
+            // A setup .zip carries the installer + ServiceHost/UiHost payloads; a bare .exe is
+            // assumed to be a self-contained installer that already embeds them.
+            string installerExe;
+            string sourceDir;
+            if (IsZip(assetName))
+            {
+                var extractDir = Path.Combine(stageDir, "extracted");
+                ExtractZip(artifactPath, extractDir);
+                installerExe = FindInstaller(extractDir)
+                    ?? throw new InvalidOperationException(
+                        "Setup archive does not contain KidControl.Installer.exe.");
+                sourceDir = Path.GetDirectoryName(installerExe)!;
+            }
+            else
+            {
+                installerExe = artifactPath;
+                sourceDir = stageDir;
+                logger.LogWarning(
+                    "Update asset is a bare .exe; assuming a self-contained installer with embedded payloads.");
+            }
+
+            // Signature-verify every executable we are about to trust — the installer AND the
+            // payloads it will deploy — before launching anything as SYSTEM.
+            VerifySignatures(sourceDir, installerExe);
+
+            // The installer's headless binary-only update copies payloads from --source and
+            // preserves appsettings.json + session_state.json. (Both update and rollback use
+            // this path; only the tag whose asset we fetched differs.)
             var process = Process.Start(new ProcessStartInfo
             {
-                FileName = installerPath,
-                Arguments = kind == "rollback" ? $"/silent /rollback /tag {tag}" : $"/silent /update /tag {tag}",
+                FileName = installerExe,
+                Arguments = $"/update --source \"{sourceDir}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = stageDir
+                WorkingDirectory = sourceDir
             });
 
             if (process is null)
@@ -129,18 +161,23 @@ public sealed class UpdateService(
         }
     }
 
-    private async Task VerifyBeforeExecuteAsync(string installerPath, UpdateInfo info, CancellationToken ct)
+    private async Task VerifyHashAsync(string artifactPath, UpdateInfo info, CancellationToken ct)
     {
-        if (info.Sha256 is { Length: > 0 })
+        if (info.Sha256 is not { Length: > 0 })
         {
-            var actual = await verifier.ComputeSha256Async(installerPath, ct).ConfigureAwait(false);
-            if (!string.Equals(actual, info.Sha256.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant(),
-                    StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException("Downloaded installer SHA-256 does not match the expected hash.");
-            }
+            return;
         }
 
+        var actual = await verifier.ComputeSha256Async(artifactPath, ct).ConfigureAwait(false);
+        var expected = info.Sha256.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+        if (!string.Equals(actual, expected, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Downloaded asset SHA-256 does not match the expected hash.");
+        }
+    }
+
+    private void VerifySignatures(string sourceDir, string installerExe)
+    {
         if (!_config.RequireSignature)
         {
             return;
@@ -151,9 +188,55 @@ public sealed class UpdateService(
             throw new InvalidOperationException("Signature verification is required but only supported on Windows.");
         }
 
-        if (!verifier.VerifySignature(installerPath, _config.TrustedThumbprint))
+        // The installer plus every KidControl executable it will deploy from the source dir.
+        var toVerify = new List<string> { installerExe };
+        foreach (var exe in Directory.EnumerateFiles(sourceDir, "KidControl*.exe", SearchOption.AllDirectories))
         {
-            throw new InvalidOperationException("Installer signature/thumbprint verification failed.");
+            if (!toVerify.Contains(exe, StringComparer.OrdinalIgnoreCase))
+            {
+                toVerify.Add(exe);
+            }
+        }
+
+        foreach (var exe in toVerify)
+        {
+            if (!verifier.VerifySignature(exe, _config.TrustedThumbprint))
+            {
+                throw new InvalidOperationException(
+                    $"Signature/thumbprint verification failed for {Path.GetFileName(exe)}.");
+            }
+        }
+    }
+
+    private static bool IsZip(string name) => name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+
+    internal static string? FindInstaller(string extractDir) =>
+        Directory.EnumerateFiles(extractDir, "KidControl.Installer.exe", SearchOption.AllDirectories)
+            .FirstOrDefault();
+
+    /// <summary>Extracts a zip with an explicit zip-slip guard (entries may not escape the target).</summary>
+    internal static void ExtractZip(string zipPath, string destDir)
+    {
+        Directory.CreateDirectory(destDir);
+        var destRoot = Path.GetFullPath(destDir + Path.DirectorySeparatorChar);
+
+        using var archive = ZipFile.OpenRead(zipPath);
+        foreach (var entry in archive.Entries)
+        {
+            var targetPath = Path.GetFullPath(Path.Combine(destDir, entry.FullName));
+            if (!targetPath.StartsWith(destRoot, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Zip entry escapes the target directory: {entry.FullName}");
+            }
+
+            if (string.IsNullOrEmpty(entry.Name))
+            {
+                Directory.CreateDirectory(targetPath); // directory entry
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            entry.ExtractToFile(targetPath, overwrite: true);
         }
     }
 
