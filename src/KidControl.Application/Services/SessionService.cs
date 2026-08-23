@@ -279,8 +279,10 @@ public sealed class SessionService
         lock (_sync)
         {
             var night = IsNightActive(_clock.LocalNow) ? "активно" : "не активно";
-            return $"{Emoji(_session.Status)} {_session.Status}. Осталось: {_session.TimeRemaining:hh\\:mm\\:ss}. " +
-                   $"Ночь ({_night}): {night}.";
+            var remaining = _session.IntervalsEnabled
+                ? $"Осталось: {_session.TimeRemaining:hh\\:mm\\:ss}"
+                : "Без ограничений (интервалы отключены)";
+            return $"{Emoji(_session.Status)} {_session.Status}. {remaining}. Ночь ({_night}): {night}.";
         }
     }
 

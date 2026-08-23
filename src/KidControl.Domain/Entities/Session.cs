@@ -49,6 +49,7 @@ public sealed class Session
     public void DisableIntervals()
     {
         IntervalsEnabled = false;
+        TimeRemaining = TimeSpan.Zero; // no limit -> clear any leftover countdown
         if (Status is SessionStatus.Resting)
         {
             Status = SessionStatus.Playing;
