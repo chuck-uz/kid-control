@@ -1,12 +1,14 @@
-# Windows batch files MUST keep CRLF line endings, or cmd.exe mis-parses labels,
-# ^ line-continuations and (…) blocks — the classic "window flashes and closes".
+# Default: let Git normalize text to LF in the repo.
+# NOTE: order matters — the LAST matching line wins, so the specific overrides
+# below must come AFTER this catch-all.
+* text=auto
+
+# PowerShell tolerates LF, but keep it CRLF on checkout for consistency.
+*.ps1 text eol=crlf
+
+# Windows batch files MUST keep CRLF, or cmd.exe mis-parses labels, ^ line-
+# continuations and (…) blocks — the classic "window flashes and closes".
 # Marking them binary (-text) stores the exact bytes, so clones AND the GitHub
 # source-zip that deploy.bat downloads always deliver CRLF.
 *.bat -text
 *.cmd -text
-
-# PowerShell tolerates LF, but keep it consistent on checkout.
-*.ps1 text eol=crlf
-
-# Everything else: let Git normalize to LF in the repo.
-* text=auto
