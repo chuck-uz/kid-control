@@ -87,9 +87,22 @@ public sealed class GitHubReleaseClient(
     {
         try
         {
-            return await http.GetFromJsonAsync<T>(relativeUrl, ct).ConfigureAwait(false);
+            using var response = await http.GetAsync(relativeUrl, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var remaining = response.Headers.TryGetValues("x-ratelimit-remaining", out var v)
+                    ? string.Join(string.Empty, v) : "?";
+                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                if (body.Length > 200) { body = body[..200]; }
+                logger.LogWarning(
+                    "GitHub {Url} returned HTTP {Status} (rate-limit-remaining={Remaining}). {Body}",
+                    relativeUrl, (int)response.StatusCode, remaining, body);
+                return default;
+            }
+
+            return await response.Content.ReadFromJsonAsync<T>(cancellationToken: ct).ConfigureAwait(false);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex)
         {
             logger.LogWarning(ex, "GitHub request failed: {Url}", relativeUrl);
             return default;
