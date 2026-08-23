@@ -36,6 +36,17 @@ function Publish-Project {
         -p:PublishSingleFile=true --no-build -o $OutDir }
 }
 
+# MinVer derives the version from git tags. A build-from-source on a client machine
+# (downloaded zip, no git and no .git folder) would fail with MINVER1007. When git is
+# unavailable, pin a low fallback version so the build succeeds AND a real signed
+# release always compares as newer, so the client auto-updates to it later.
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    if ([string]::IsNullOrWhiteSpace($env:MinVerVersionOverride)) {
+        $env:MinVerVersionOverride = "0.0.1-source"
+    }
+    Write-Host "==> git not found; MinVerVersionOverride = $($env:MinVerVersionOverride)" -ForegroundColor Yellow
+}
+
 Write-Host "==> Cleaning" -ForegroundColor Cyan
 if (Test-Path $publishDir) {
     Remove-Item -Path $publishDir -Recurse -Force
