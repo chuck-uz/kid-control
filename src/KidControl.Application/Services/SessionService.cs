@@ -269,6 +269,11 @@ public sealed class SessionService
         }
     }
 
+    public string GetNightWindowText()
+    {
+        lock (_sync) { return _night.ToString(); }
+    }
+
     public string StatusText()
     {
         lock (_sync)
