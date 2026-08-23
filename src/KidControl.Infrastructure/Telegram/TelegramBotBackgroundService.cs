@@ -30,6 +30,7 @@ public sealed class TelegramBotBackgroundService(
     SessionService session,
     IUpdateService updates,
     KidControl.Infrastructure.Ipc.UiCommandClient ui,
+    IAdminRegistry admins,
     IOptions<TelegramConfig> config,
     ILogger<TelegramBotBackgroundService> logger) : BackgroundService
 {
@@ -41,7 +42,8 @@ public sealed class TelegramBotBackgroundService(
     {
         new KeyboardButton[] { "📊 Статус", "➕ Время" },
         new KeyboardButton[] { "🎮 Приложение", "💻 Компьютер" },
-        new KeyboardButton[] { "⚙️ Интервалы", "📦 Версия" }
+        new KeyboardButton[] { "⚙️ Интервалы", "📦 Версия" },
+        new KeyboardButton[] { "👤 Админы" }
     })
     { ResizeKeyboard = true };
 
@@ -164,13 +166,39 @@ public sealed class TelegramBotBackgroundService(
 
     private async Task HandleMessageAsync(long chatId, string text, CancellationToken ct)
     {
-        if (!_config.IsAdmin(chatId))
+        var t = text.Trim();
+
+        // Anyone may ask for their own id (needed so an admin can add them).
+        if (t is "/myid" or "🆔" || t.StartsWith("/myid", StringComparison.OrdinalIgnoreCase))
         {
-            logger.LogWarning("Ignored message from non-admin chat {ChatId}.", chatId);
+            await Send(chatId, $"Ваш ID: {chatId}", MainKeyboard, ct).ConfigureAwait(false);
             return;
         }
 
-        var t = text.Trim();
+        if (!admins.IsAdmin(chatId))
+        {
+            await Send(chatId,
+                $"⛔ Нет доступа. Ваш ID: {chatId}\nПопросите администратора добавить вас: /addadmin {chatId}",
+                MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Admin management (admins only).
+        if (t.StartsWith("/addadmin", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleAdminChangeAsync(chatId, t, add: true, ct).ConfigureAwait(false);
+            return;
+        }
+        if (t.StartsWith("/deladmin", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleAdminChangeAsync(chatId, t, add: false, ct).ConfigureAwait(false);
+            return;
+        }
+        if (t is "/admins" or "👤 Админы")
+        {
+            await Send(chatId, AdminsText(), MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
 
         // Folder buttons (and /start) — open the matching inline sub-menu.
         switch (t)
@@ -207,7 +235,7 @@ public sealed class TelegramBotBackgroundService(
     private async Task HandleCallbackAsync(CallbackQuery callback, CancellationToken ct)
     {
         var chatId = callback.Message?.Chat.Id ?? callback.From.Id;
-        if (!_config.IsAdmin(chatId))
+        if (!admins.IsAdmin(chatId))
         {
             await bot.AnswerCallbackQuery(callback.Id, "Недостаточно прав.", showAlert: true, cancellationToken: ct).ConfigureAwait(false);
             return;
@@ -284,6 +312,35 @@ public sealed class TelegramBotBackgroundService(
         }
     }
 
+    private async Task HandleAdminChangeAsync(long chatId, string text, bool add, CancellationToken ct)
+    {
+        var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !long.TryParse(parts[1], out var target))
+        {
+            await Send(chatId, add ? "Формат: /addadmin <ID>" : "Формат: /deladmin <ID>", MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
+
+        if (add)
+        {
+            var ok = admins.Add(target);
+            await Send(chatId, ok ? $"✅ Администратор {target} добавлен." : $"{target} уже администратор.", MainKeyboard, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            var ok = admins.Remove(target);
+            await Send(chatId, ok ? $"✅ Администратор {target} удалён." : $"Не удалось удалить {target} (не найден или это последний администратор).", MainKeyboard, ct).ConfigureAwait(false);
+        }
+    }
+
+    private string AdminsText()
+    {
+        var list = string.Join("\n", admins.All.Select(a => "• " + a));
+        return $"Администраторы ({admins.Count}):\n{list}\n\n" +
+               "Добавить: /addadmin <ID>\nУдалить: /deladmin <ID>\nУзнать свой ID: /myid\n\n" +
+               "Новый администратор должен написать боту /myid, чтобы узнать свой ID.";
+    }
+
     private async Task SendScreenshotAsync(long chatId, CancellationToken ct)
     {
         var path = await ui.CaptureScreenshotAsync(ct).ConfigureAwait(false);
@@ -307,7 +364,7 @@ public sealed class TelegramBotBackgroundService(
 
     private async Task HandleAudioAsync(long chatId, string fileId, string suggestedName, CancellationToken ct)
     {
-        if (!_config.IsAdmin(chatId))
+        if (!admins.IsAdmin(chatId))
         {
             logger.LogWarning("Ignored audio from non-admin chat {ChatId}.", chatId);
             return;
