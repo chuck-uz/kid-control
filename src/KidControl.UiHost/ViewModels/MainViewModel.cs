@@ -40,6 +40,10 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool isUnlimited;
 
+    /// <summary>The small widget is shown only while a limit is active and not blocked.</summary>
+    [ObservableProperty]
+    private bool isWidgetVisible = true;
+
     [ObservableProperty]
     private string sessionLabel = "Игровая сессия";
 
@@ -76,6 +80,7 @@ public sealed partial class MainViewModel : ObservableObject
             IsUnlimited = state.IsUnlimited;
             IsBlocked = IsBlockingStatus(state.Status);
             IsNightBlocked = IsNightModeActive && IsBlocked;
+            IsWidgetVisible = !IsBlocked && !IsUnlimited;
             _shutdownInSeconds = state.ShutdownInSeconds;
 
             if (IsUnlimited && !IsBlocked)

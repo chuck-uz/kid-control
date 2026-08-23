@@ -14,8 +14,13 @@
         FontFamily="Segoe UI, Segoe UI Variable Text"
         Opacity="1">
 
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Window.Resources>
+
     <Grid>
         <Border x:Name="WidgetBorder"
+                Visibility="{Binding IsWidgetVisible, Converter={StaticResource BoolToVis}}"
                 Width="280"
                 Height="96"
                 HorizontalAlignment="Right"
