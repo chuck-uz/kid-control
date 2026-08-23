@@ -13,4 +13,5 @@ public sealed record SessionSnapshot
     public TimeSpan NightStart { get; init; } = TimeSpan.FromHours(22);
     public TimeSpan NightEnd { get; init; } = TimeSpan.FromHours(7);
     public bool IntervalsEnabled { get; init; } = true;
+    public bool NightEnabled { get; init; } = true;
 }

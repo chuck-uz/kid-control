@@ -78,11 +78,14 @@ public static class CommandParser
 
     private static SessionCommand ParseNight(string[] tokens)
     {
-        if (tokens.Length >= 2 && NightWindow.TryParse(tokens[1], out var window))
+        if (tokens.Length >= 2)
         {
-            return new SessionCommand.SetNight(window);
+            var arg = tokens[1].ToLowerInvariant();
+            if (arg is "on" or "вкл") return new SessionCommand.SetNightEnabled(true);
+            if (arg is "off" or "выкл") return new SessionCommand.SetNightEnabled(false);
+            if (NightWindow.TryParse(tokens[1], out var window)) return new SessionCommand.SetNight(window);
         }
 
-        return new SessionCommand.Unknown("Формат: /night 22:00-07:00.");
+        return new SessionCommand.Unknown("Формат: /night 22:00-07:00, либо /night on|off.");
     }
 }
