@@ -1,6 +1,7 @@
 using KidControl.Application.Abstractions;
 using KidControl.Application.Commands;
 using KidControl.Application.Services;
+using KidControl.Contracts;
 using KidControl.Infrastructure.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ public sealed class TelegramBotBackgroundService(
     ITelegramBotClient bot,
     SessionService session,
     IUpdateService updates,
+    KidControl.Infrastructure.Ipc.UiCommandClient ui,
     IOptions<TelegramConfig> config,
     ILogger<TelegramBotBackgroundService> logger) : BackgroundService
 {
@@ -61,6 +63,7 @@ public sealed class TelegramBotBackgroundService(
 
     private static readonly InlineKeyboardMarkup PcMenu = new(new[]
     {
+        new[] { Btn("📷 Скриншот экрана", "ui:screenshot") },
         new[] { Btn("🔌 Выключить ПК", "pc:shutdown") },
         new[] { Btn("🔄 Перезагрузить ПК", "pc:restart") }
     });
@@ -128,9 +131,24 @@ public sealed class TelegramBotBackgroundService(
     {
         try
         {
-            if (update is { Type: UpdateType.Message, Message: { Text: { } text } message })
+            if (update is { Type: UpdateType.Message, Message: { } message })
             {
-                await HandleMessageAsync(message.Chat.Id, text, ct).ConfigureAwait(false);
+                if (message.Text is { } text)
+                {
+                    await HandleMessageAsync(message.Chat.Id, text, ct).ConfigureAwait(false);
+                }
+                else if (message.Voice is { } voice)
+                {
+                    await HandleAudioAsync(message.Chat.Id, voice.FileId, "voice.ogg", ct).ConfigureAwait(false);
+                }
+                else if (message.Audio is { } audio)
+                {
+                    await HandleAudioAsync(message.Chat.Id, audio.FileId, audio.FileName ?? "audio.mp3", ct).ConfigureAwait(false);
+                }
+                else if (message.Document is { } doc && (doc.MimeType?.StartsWith("audio", StringComparison.OrdinalIgnoreCase) ?? false))
+                {
+                    await HandleAudioAsync(message.Chat.Id, doc.FileId, doc.FileName ?? "audio", ct).ConfigureAwait(false);
+                }
             }
             else if (update is { Type: UpdateType.CallbackQuery, CallbackQuery: { } callback })
             {
@@ -210,6 +228,10 @@ public sealed class TelegramBotBackgroundService(
             case "menu:cancel":
                 await bot.AnswerCallbackQuery(callback.Id, "Отменено", cancellationToken: ct).ConfigureAwait(false);
                 return;
+            case "ui:screenshot":
+                await bot.AnswerCallbackQuery(callback.Id, "Делаю скриншот…", cancellationToken: ct).ConfigureAwait(false);
+                await SendScreenshotAsync(chatId, ct).ConfigureAwait(false);
+                return;
             case "ver:check":
                 await bot.AnswerCallbackQuery(callback.Id, "Проверяю…", cancellationToken: ct).ConfigureAwait(false);
                 var info = await updates.CheckAsync(ct).ConfigureAwait(false);
@@ -223,6 +245,58 @@ public sealed class TelegramBotBackgroundService(
         var reply = await session.ExecuteAsync(CommandParser.Parse(data), ct).ConfigureAwait(false);
         await bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct).ConfigureAwait(false);
         await Send(chatId, reply, MainKeyboard, ct).ConfigureAwait(false);
+    }
+
+    private async Task SendScreenshotAsync(long chatId, CancellationToken ct)
+    {
+        var path = await ui.CaptureScreenshotAsync(ct).ConfigureAwait(false);
+        if (path is null)
+        {
+            await Send(chatId, "Не удалось сделать скриншот (UI не запущен?).", MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await using var fs = File.OpenRead(path);
+            await bot.SendPhoto(chatId, InputFile.FromStream(fs, "screen.png"), caption: "Скриншот экрана", cancellationToken: ct)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best effort */ }
+        }
+    }
+
+    private async Task HandleAudioAsync(long chatId, string fileId, string suggestedName, CancellationToken ct)
+    {
+        if (!_config.IsAdmin(chatId))
+        {
+            logger.LogWarning("Ignored audio from non-admin chat {ChatId}.", chatId);
+            return;
+        }
+
+        var ext = Path.GetExtension(suggestedName);
+        if (string.IsNullOrWhiteSpace(ext)) { ext = ".ogg"; }
+        var dest = TransferPaths.NewFile(ext);
+
+        try
+        {
+            await using (var fs = File.Create(dest))
+            {
+                await bot.GetInfoAndDownloadFile(fileId, fs, ct).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to download audio {FileId}.", fileId);
+            await Send(chatId, "Не удалось скачать аудио.", MainKeyboard, ct).ConfigureAwait(false);
+            return;
+        }
+
+        var ok = await ui.PlayAudioAsync(dest, ct).ConfigureAwait(false);
+        await Send(chatId, ok ? "▶️ Воспроизвожу на ПК." : "Не удалось воспроизвести (UI не запущен или формат не поддерживается).", MainKeyboard, ct)
+            .ConfigureAwait(false);
     }
 
     private Task Send(long chatId, string text, ReplyMarkup markup, CancellationToken ct)
