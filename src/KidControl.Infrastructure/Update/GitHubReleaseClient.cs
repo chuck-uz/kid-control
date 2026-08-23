@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using KidControl.Application.Models;
 using KidControl.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
@@ -24,17 +25,71 @@ public sealed class GitHubReleaseClient(
 
     private string RepoPath => $"repos/{_config.Owner}/{_config.Repository}";
 
+    // Public repos: resolve/download via github.com (CDN + web redirect), which is NOT
+    // subject to the api.github.com 60/hr unauthenticated rate limit that was returning
+    // 403 and making the service think there were "no updates". Private repos keep using
+    // the authenticated REST API (5000/hr).
+    private bool UsePublicWeb => string.IsNullOrWhiteSpace(_config.GitHubToken);
+
     public async Task<UpdateInfo?> GetLatestAsync(CancellationToken ct = default)
     {
+        if (UsePublicWeb)
+        {
+            var tag = await ResolveLatestTagViaWebAsync(ct).ConfigureAwait(false);
+            return tag is null ? null : BuildDirectInfo(tag);
+        }
+
         var release = await GetJsonAsync<GitHubRelease>($"{RepoPath}/releases/latest", ct).ConfigureAwait(false);
         return ToUpdateInfo(release);
     }
 
     public async Task<UpdateInfo?> GetByTagAsync(string tag, CancellationToken ct = default)
     {
+        if (UsePublicWeb)
+        {
+            return BuildDirectInfo(tag);
+        }
+
         var escaped = Uri.EscapeDataString(tag);
         var release = await GetJsonAsync<GitHubRelease>($"{RepoPath}/releases/tags/{escaped}", ct).ConfigureAwait(false);
         return ToUpdateInfo(release);
+    }
+
+    /// <summary>Reads the latest tag from the github.com/.../releases/latest redirect (no API).</summary>
+    private async Task<string?> ResolveLatestTagViaWebAsync(CancellationToken ct)
+    {
+        try
+        {
+            var url = $"https://github.com/{_config.Owner}/{_config.Repository}/releases/latest";
+            using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            var finalUrl = resp.RequestMessage?.RequestUri?.ToString() ?? string.Empty;
+            var m = Regex.Match(finalUrl, @"/releases/tag/([^/?#]+)");
+            if (m.Success)
+            {
+                return Uri.UnescapeDataString(m.Groups[1].Value);
+            }
+
+            logger.LogWarning("Could not resolve latest tag (final url: {Url}).", finalUrl);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to resolve latest release tag via web redirect.");
+            return null;
+        }
+    }
+
+    /// <summary>Builds UpdateInfo with the direct CDN download URL — no API call.</summary>
+    private UpdateInfo? BuildDirectInfo(string tag)
+    {
+        if (!TryParseVersion(tag, out var version))
+        {
+            return null;
+        }
+
+        var assetName = $"KidControl-Setup-{tag}.zip";
+        var url = $"https://github.com/{_config.Owner}/{_config.Repository}/releases/download/{tag}/{assetName}";
+        return new UpdateInfo(tag, version, string.Empty, assetName, url, AssetSize: 0, Sha256: null);
     }
 
     public async Task<IReadOnlyList<ReleaseInfo>> ListAsync(int top, CancellationToken ct = default)

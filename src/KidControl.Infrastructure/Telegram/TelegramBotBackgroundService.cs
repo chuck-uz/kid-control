@@ -42,8 +42,8 @@ public sealed class TelegramBotBackgroundService(
     {
         new KeyboardButton[] { "📊 Статус", "➕ Время" },
         new KeyboardButton[] { "🎮 Приложение", "💻 Компьютер" },
-        new KeyboardButton[] { "⚙️ Интервалы", "📦 Версия" },
-        new KeyboardButton[] { "👤 Админы" }
+        new KeyboardButton[] { "⚙️ Интервалы", "🌙 Ночь" },
+        new KeyboardButton[] { "📦 Версия", "👤 Админы" }
     })
     { ResizeKeyboard = true };
 
@@ -77,6 +77,12 @@ public sealed class TelegramBotBackgroundService(
         new[] { Btn("40 / 20", "/setrule 40 20"), Btn("30 / 10", "/setrule 30 10") },
         new[] { Btn("♾️ Отключить интервалы", "/intervals off") },
         new[] { Btn("✅ Включить интервалы", "/intervals on") }
+    });
+
+    private static readonly InlineKeyboardMarkup NightMenu = new(new[]
+    {
+        new[] { Btn("22:00-07:00", "/night 22:00-07:00"), Btn("21:00-08:00", "/night 21:00-08:00") },
+        new[] { Btn("23:00-06:00", "/night 23:00-06:00"), Btn("00:00-06:00", "/night 00:00-06:00") }
     });
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -221,6 +227,13 @@ public sealed class TelegramBotBackgroundService(
                 return;
             case "⚙️ Интервалы":
                 await Send(chatId, "Выберите режим (игра / отдых, мин):", RulesMenu, ct).ConfigureAwait(false);
+                return;
+            case "🌙 Ночь":
+                await Send(chatId,
+                    $"Ночной интервал сейчас: {session.GetNightWindowText()}\n" +
+                    "Ночью ПК выключается через 1 минуту (см. заметку). Выберите пресет " +
+                    "или отправьте свой: /night 22:00-07:00",
+                    NightMenu, ct).ConfigureAwait(false);
                 return;
             case "📦 Версия":
                 await Send(chatId, $"Текущая версия: {updates.CurrentVersionText}", VersionMenu(), ct).ConfigureAwait(false);
