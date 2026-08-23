@@ -1,16 +1,15 @@
 @echo off
 rem ============================================================================
-rem  KidControl - update.bat
-rem  Downloads the latest version from GitHub, builds it, and performs a
-rem  BINARY-ONLY update of an already-installed instance.
+rem  KidControl - update.bat  (updates to a PREBUILT RELEASE, keeps config)
 rem
-rem  Uses the installer's "/update" mode, which replaces the executables but
-rem  DELIBERATELY preserves:
+rem  Downloads the release setup zip built by CI (correct version baked in) and
+rem  applies a BINARY-ONLY update via the installer's /update mode, which preserves:
 rem     - %ProgramData%\KidControl\appsettings.json   (bot token / admins)
 rem     - %ProgramData%\KidControl\session_state.json (the child's current timer)
 rem
-rem  Same batch/PowerShell polyglot as deploy.bat, with a debug log at
-rem  %TEMP%\kidcontrol-update.log.
+rem  No .NET SDK, no build, no git, no api.github.com (uses the direct CDN URL, so
+rem  it is never blocked by GitHub's 60/hr API rate limit). Mirrors deploy.bat.
+rem  Debug log: %TEMP%\kidcontrol-update.log
 rem ============================================================================
 
 rem ---------------------------------------------------------------------------
@@ -19,33 +18,28 @@ rem ---------------------------------------------------------------------------
 set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
 
-rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo')
-rem  so the source can download. Empty for a public repo.
+rem  Which release to install. Pinned tag = exact version (recommended). Empty = latest.
+set "KC_TAG=v2.0.7"
+
+rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo'). Empty if public.
 set "KC_GH_TOKEN="
 
-rem  Source: release = latest published GitHub release; branch = head of KC_BRANCH.
-set "KC_SOURCE_MODE=branch"
-set "KC_BRANCH=v2"
-
-rem  Optional self-update tweaks applied AFTER the update (leave empty to keep as-is):
-rem    KC_CHECK_INTERVAL   = poll period HH:MM:SS. Do NOT use 1 min (GitHub 60/hr limit).
-rem    KC_REQUIRE_SIGNATURE= true|false
-rem    KC_THUMBPRINT       = SHA-256 thumbprint (for signed self-update)
-set "KC_CHECK_INTERVAL=00:15:00"
+rem  Self-update settings applied after the update (empty = leave as-is):
+rem    KC_REQUIRE_SIGNATURE = false to accept unsigned releases (public-repo auto-update)
+rem    KC_CHECK_INTERVAL    = poll period HH:MM:SS (not 1 min -> GitHub 60/hr limit)
+rem    KC_THUMBPRINT        = SHA-256 thumbprint for signed self-update (optional)
 set "KC_REQUIRE_SIGNATURE=false"
+set "KC_CHECK_INTERVAL=00:15:00"
 set "KC_THUMBPRINT="
 rem ---------------------------------------------------------------------------
 
 setlocal EnableExtensions EnableDelayedExpansion
 
-rem --- Debug log ------------------------------------------------------------
 set "KC_LOG=%TEMP%\kidcontrol-update.log"
 >>"%KC_LOG%" echo(
-call :log "===== update.bat started ====="
-call :log "script = %~f0"
-call :log "user   = %USERNAME%    log = %KC_LOG%"
+call :log "===== update.bat (release install) started ====="
+call :log "script = %~f0    user = %USERNAME%    log = %KC_LOG%"
 
-rem --- Require administrator -------------------------------------------------
 net session >nul 2>&1
 if !errorlevel! NEQ 0 (
     call :log "not elevated -> requesting UAC elevation"
@@ -60,7 +54,7 @@ if !errorlevel! NEQ 0 (
 call :log "running elevated: OK"
 
 echo(
-echo === KidControl update: %KC_OWNER%/%KC_REPO% (%KC_SOURCE_MODE%) ===
+echo === KidControl update (release): %KC_OWNER%/%KC_REPO% ===
 echo Config and the current timer are preserved.  Debug log: %KC_LOG%
 echo(
 
@@ -89,7 +83,6 @@ echo(
 pause
 exit /b !RC!
 
-rem --- Simple logger: echoes to console and appends to the debug log ---------
 :log
 echo [%TIME%] %~1
 >>"%KC_LOG%" echo [%DATE% %TIME%] %~1
@@ -113,98 +106,72 @@ function Set-OrAdd($obj, $name, $value) {
     else { $obj | Add-Member -NotePropertyName $name -NotePropertyValue $value }
 }
 
-$owner  = $env:KC_OWNER
-$repo   = $env:KC_REPO
-$mode   = $env:KC_SOURCE_MODE
-$branch = $env:KC_BRANCH
-$ua     = @{ 'User-Agent' = 'kidcontrol-update' }
-if (-not [string]::IsNullOrWhiteSpace($env:KC_GH_TOKEN)) { $ua['Authorization'] = "Bearer $($env:KC_GH_TOKEN)" }
+$owner = $env:KC_OWNER
+$repo  = $env:KC_REPO
+$tag   = $env:KC_TAG
+$token = $env:KC_GH_TOKEN
+$ua    = @{ 'User-Agent' = 'kidcontrol-update' }
+if (-not [string]::IsNullOrWhiteSpace($token)) { $ua['Authorization'] = "Bearer $token" }
 
 $work    = Join-Path $env:TEMP 'kidcontrol-update'
-$srcRoot = Join-Path $work 'source'
-$zipPath = Join-Path $work 'source.zip'
+$extract = Join-Path $work 'release'
 
-# ---- 1. Ensure the .NET 8 SDK (for building) -----------------------------
-Info 'Checking for the .NET SDK'
-$haveSdk = $false
-try {
-    $v = (& dotnet --list-sdks) 2>$null
-    if ($LASTEXITCODE -eq 0 -and ($v | Select-String '^8\.' -Quiet)) { $haveSdk = $true }
-} catch { }
-
-if (-not $haveSdk) {
-    $localDotnet = Join-Path $env:USERPROFILE '.dotnet'
-    $localExe    = Join-Path $localDotnet 'dotnet.exe'
-    if (-not (Test-Path $localExe)) {
-        Info 'Installing the .NET 8 SDK locally to %USERPROFILE%\.dotnet'
-        New-Item -ItemType Directory -Force -Path $work | Out-Null
-        $installPs1 = Join-Path $work 'dotnet-install.ps1'
-        Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $installPs1 -Headers $ua
-        & $installPs1 -Channel '8.0' -InstallDir $localDotnet -Architecture x64
-    }
-    $env:DOTNET_ROOT = $localDotnet
-    $env:PATH = "$localDotnet;$env:PATH"
-}
-$env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
-$env:DOTNET_NOLOGO = '1'
-Ok ("SDK: " + ((& dotnet --version) 2>$null))
-
-# ---- 2. Require an existing installation ----------------------------------
+# ---- 1. Require an existing installation ----------------------------------
 $svc = Get-Service -Name 'KidControlService' -ErrorAction SilentlyContinue
 if (-not $svc) {
     throw "KidControlService is not installed. Run deploy.bat for a first-time install; update.bat only updates an existing one."
 }
 
-# ---- 3. Download the source ----------------------------------------------
-if (Test-Path $srcRoot) { Remove-Item -Recurse -Force $srcRoot }
-New-Item -ItemType Directory -Force -Path $srcRoot | Out-Null
+# ---- 2. Download the setup zip -------------------------------------------
+# Public repo: direct CDN URL (no api.github.com -> no rate limit). Private: authenticated API.
+if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
+New-Item -ItemType Directory -Force -Path $extract | Out-Null
+$zip = Join-Path $work 'setup.zip'
 
-if ($mode -eq 'branch') {
-    $zipUrl = "https://api.github.com/repos/$owner/$repo/zipball/$branch"
-    Info "Downloading branch '$branch' of $owner/$repo"
-} else {
-    Info "Querying latest release of $owner/$repo"
-    try {
-        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/releases/latest" -Headers $ua
-    } catch {
-        throw "No published release found for $owner/$repo. If there are no releases yet, set KC_SOURCE_MODE=branch."
+if ([string]::IsNullOrWhiteSpace($token)) {
+    if ([string]::IsNullOrWhiteSpace($tag)) {
+        $zipUrl = "https://github.com/$owner/$repo/releases/latest/download/KidControl-Setup.zip"
+        Info "Downloading latest setup: $zipUrl"
+    } else {
+        $zipUrl = "https://github.com/$owner/$repo/releases/download/$tag/KidControl-Setup-$tag.zip"
+        Info "Downloading setup $tag : $zipUrl"
     }
-    Ok ("Latest release: " + $rel.tag_name)
-    $zipUrl = $rel.zipball_url
+    Invoke-WebRequest -Uri $zipUrl -Headers $ua -OutFile $zip
+} else {
+    $relApi = if ([string]::IsNullOrWhiteSpace($tag)) {
+        "https://api.github.com/repos/$owner/$repo/releases/latest"
+    } else {
+        "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
+    }
+    Info "Querying private release: $relApi"
+    $rel = Invoke-RestMethod -Uri $relApi -Headers $ua
+    $asset = $rel.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
+    if (-not $asset) { throw "Release $($rel.tag_name) has no .zip setup asset." }
+    $dh = @{ 'User-Agent' = 'kidcontrol-update'; 'Authorization' = "Bearer $token"; 'Accept' = 'application/octet-stream' }
+    Info "Downloading setup: $($asset.name)"
+    Invoke-WebRequest -Uri $asset.url -Headers $dh -OutFile $zip
 }
 
-Info 'Downloading source archive'
-Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -Headers $ua
 Info 'Extracting'
-Expand-Archive -Path $zipPath -DestinationPath $srcRoot -Force
+Expand-Archive -Path $zip -DestinationPath $extract -Force
 
-$sln = Get-ChildItem -Path $srcRoot -Recurse -Filter 'KidControl.sln' | Select-Object -First 1
-if (-not $sln) { throw "KidControl.sln not found in the downloaded source." }
-$root = $sln.Directory.FullName
-Ok "Source root: $root"
+$installer = Get-ChildItem -Path $extract -Recurse -Filter 'KidControl.Installer.exe' | Select-Object -First 1
+if (-not $installer) { throw "KidControl.Installer.exe not found in the setup zip." }
+$sourceDir = Split-Path $installer.FullName -Parent
+Ok "Installer: $($installer.FullName)"
 
-# ---- 4. Build (restore + build + test + publish) -------------------------
-$build = Join-Path $root 'build.ps1'
-if (-not (Test-Path $build)) { throw "build.ps1 not found next to the solution." }
-Info 'Building (restore, build, test, publish) - this can take a few minutes'
-& $build
-
-$installer = Join-Path $root 'publish\Installer\KidControl.Installer.exe'
-if (-not (Test-Path $installer)) { throw "Installer not found at $installer after build." }
-Ok "Built installer: $installer"
-
-# ---- 5. Binary-only update (config + timer preserved) --------------------
+# ---- 3. Binary-only update (config + timer preserved) --------------------
 Info 'Applying update (/update - appsettings.json and session_state.json are kept)'
-$sourceDir = Join-Path $root 'publish\Installer'
 $argList = @('/update', '--source', ('"' + $sourceDir + '"'))
-$p = Start-Process -FilePath $installer -ArgumentList $argList -PassThru -Wait
+$p = Start-Process -FilePath $installer.FullName -ArgumentList $argList -PassThru -Wait
 if ($p.ExitCode -ne 0) { throw "Update exited with code $($p.ExitCode)." }
 
-# ---- 6. Optional: apply self-update tweaks (/update does not touch config) -
+# ---- 4. Apply self-update settings (/update does not touch config) --------
 $applyThumb    = -not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)
 $applyReq      = -not [string]::IsNullOrWhiteSpace($env:KC_REQUIRE_SIGNATURE)
+$applyTok      = -not [string]::IsNullOrWhiteSpace($token)
 $applyInterval = -not [string]::IsNullOrWhiteSpace($env:KC_CHECK_INTERVAL)
-if ($applyThumb -or $applyReq -or $applyInterval) {
+if ($applyThumb -or $applyReq -or $applyTok -or $applyInterval) {
     $cfgPath = Join-Path $env:ProgramData 'KidControl\appsettings.json'
     if (Test-Path $cfgPath) {
         $json = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Json
@@ -213,6 +180,7 @@ if ($applyThumb -or $applyReq -or $applyInterval) {
         }
         if ($applyThumb)    { Set-OrAdd $json.Update 'TrustedThumbprint' $env:KC_THUMBPRINT }
         if ($applyReq)      { Set-OrAdd $json.Update 'RequireSignature' ($env:KC_REQUIRE_SIGNATURE -match '^(true|1|yes)$') }
+        if ($applyTok)      { Set-OrAdd $json.Update 'GitHubToken' $token }
         if ($applyInterval) { Set-OrAdd $json.Update 'CheckInterval' $env:KC_CHECK_INTERVAL }
         ($json | ConvertTo-Json -Depth 16) | Set-Content -LiteralPath $cfgPath -Encoding utf8
         Info 'Applied self-update settings; restarting service'
