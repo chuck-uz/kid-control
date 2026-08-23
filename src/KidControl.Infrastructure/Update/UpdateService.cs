@@ -34,6 +34,8 @@ public sealed class UpdateService(
 
     public Version CurrentVersion => ResolveCurrentVersion();
 
+    public string CurrentVersionText => ResolveCurrentVersionText();
+
     public async Task<UpdateInfo?> CheckAsync(CancellationToken ct = default)
     {
         try
@@ -297,6 +299,32 @@ public sealed class UpdateService(
         {
             logger.LogDebug(ex, "Failed to clean up staging directory {Path}.", stageDir);
         }
+    }
+
+    private string ResolveCurrentVersionText()
+    {
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                var info = FileVersionInfo.GetVersionInfo(path);
+                var raw = !string.IsNullOrWhiteSpace(info.ProductVersion) ? info.ProductVersion
+                        : info.FileVersion;
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    // Drop build metadata (the "+<sha>") for display; keep any pre-release label.
+                    var plus = raw.IndexOf('+', StringComparison.Ordinal);
+                    return (plus > 0 ? raw[..plus] : raw).Trim();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Failed to read version text from host executable.");
+        }
+
+        return CurrentVersion.ToString();
     }
 
     private Version ResolveCurrentVersion()
