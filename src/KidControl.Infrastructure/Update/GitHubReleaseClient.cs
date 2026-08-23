@@ -119,9 +119,15 @@ public sealed class GitHubReleaseClient(
             Sha256: null);
     }
 
-    /// <summary>Prefers the first <c>.exe</c> installer asset, else the first asset.</summary>
+    /// <summary>
+    /// Prefers the self-contained setup <c>.zip</c> (installer + payload binaries in one
+    /// archive), then a bare <c>.exe</c>, then the first asset. The zip is the artifact the
+    /// self-update path can act on end-to-end, because a lone installer .exe carries no
+    /// ServiceHost/UiHost payloads to deploy.
+    /// </summary>
     private static GitHubReleaseAsset? SelectInstaller(List<GitHubReleaseAsset> assets)
-        => assets.Find(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        => assets.Find(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+           ?? assets.Find(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
            ?? (assets.Count > 0 ? assets[0] : null);
 
     private static bool TryParseVersion(string? tag, out Version version)
