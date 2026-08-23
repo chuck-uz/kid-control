@@ -153,9 +153,9 @@ public partial class MainWindow : Window
 
             if (_viewModel.IsNightBlocked)
             {
-                BlockReasonText.Text = "Спокойной ночи, увидимся завтра!";
-                BlockedTimerText.Visibility = Visibility.Collapsed;
-                StopBlockedTimerAnimation();
+                BlockReasonText.Text = "Спокойной ночи! Компьютер выключится через:";
+                BlockedTimerText.Visibility = Visibility.Visible;
+                StartBlockedTimerAnimation();
             }
             else
             {

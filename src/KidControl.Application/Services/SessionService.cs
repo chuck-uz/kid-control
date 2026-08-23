@@ -21,6 +21,9 @@ public sealed class SessionService
     private static readonly TimeSpan MaxTickJump = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan NightAlertThrottle = TimeSpan.FromMinutes(5);
 
+    /// <summary>Grace shown on-screen after the night block engages, before the PC is shut down.</summary>
+    private static readonly TimeSpan NightShutdownGrace = TimeSpan.FromSeconds(60);
+
     private readonly object _sync = new();
     private Session _session = new();
     private readonly IClock _clock;
@@ -34,6 +37,12 @@ public sealed class SessionService
     private DateTimeOffset _nightBypassUntil = DateTimeOffset.MinValue;
     private DateTimeOffset _lastTickAt;
     private DateTimeOffset _lastNightAlert = DateTimeOffset.MinValue;
+
+    // Night auto-shutdown: when the night block is active we count down from
+    // NightShutdownGrace and then power the PC off. Reset whenever we leave the block
+    // (so it restarts on the next boot / re-entry, and is cancelled by an admin bypass).
+    private DateTimeOffset? _nightShutdownAt;
+    private bool _nightShutdownFired;
 
     public SessionService(
         IClock clock,
@@ -68,6 +77,7 @@ public sealed class SessionService
     {
         SessionStateDto state;
         SessionStatus before, after;
+        var shutdownNow = false;
 
         lock (_sync)
         {
@@ -78,10 +88,20 @@ public sealed class SessionService
             if (IsNightActive(localNow) && !IsBypassActive(now))
             {
                 _session.EnterNight();
+
+                // Arm (once) the on-screen grace countdown, then power off when it elapses.
+                _nightShutdownAt ??= now + NightShutdownGrace;
+                if (!_nightShutdownFired && now >= _nightShutdownAt.Value)
+                {
+                    _nightShutdownFired = true;
+                    shutdownNow = true;
+                }
             }
             else
             {
                 _session.ExitNight();
+                _nightShutdownAt = null;
+                _nightShutdownFired = false;
                 if (_session.Status != SessionStatus.Paused)
                 {
                     var elapsed = ClampElapsed(now - _lastTickAt);
@@ -101,6 +121,31 @@ public sealed class SessionService
         {
             await NotifySafeAsync("⚡ Время игры вышло. Компьютер перешёл в режим перерыва.", ct).ConfigureAwait(false);
         }
+
+        if (shutdownNow)
+        {
+            await NotifySafeAsync("🌙 Ночное время: выключаю компьютер.", ct).ConfigureAwait(false);
+            try
+            {
+                await _system.ShutdownAsync(TimeSpan.Zero, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Night auto-shutdown failed.");
+            }
+        }
+    }
+
+    /// <summary>Seconds left on the night grace countdown, or -1 when it is not counting.</summary>
+    private int NightShutdownSeconds()
+    {
+        if (_session.Status != SessionStatus.NightBlocked || _nightShutdownAt is not { } at)
+        {
+            return -1;
+        }
+
+        var remaining = (at - _clock.UtcNow).TotalSeconds;
+        return remaining <= 0 ? 0 : (int)Math.Ceiling(remaining);
     }
 
     private static TimeSpan ClampElapsed(TimeSpan elapsed)
@@ -258,7 +303,7 @@ public sealed class SessionService
     }
 
     private SessionStateDto Snapshot(bool isNight) =>
-        new(_session.Status.ToString(), _session.TimeRemaining, isNight, !_session.IntervalsEnabled);
+        new(_session.Status.ToString(), _session.TimeRemaining, isNight, !_session.IntervalsEnabled, NightShutdownSeconds());
 
     private static string Emoji(SessionStatus status) => status switch
     {

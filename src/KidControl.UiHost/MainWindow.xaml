@@ -100,7 +100,7 @@
                                LineHeight="56"
                                HorizontalAlignment="Center" />
                     <TextBlock x:Name="BlockedTimerText"
-                               Text="{Binding TimeRemaining}"
+                               Text="{Binding BlockCountdownText}"
                                Foreground="{StaticResource TextPrimaryBrush}"
                                FontWeight="SemiBold"
                                FontFamily="{StaticResource UiFontFamily}"
