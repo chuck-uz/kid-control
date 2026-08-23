@@ -16,17 +16,19 @@ public sealed class SessionIntervalsTests
     }
 
     [Fact]
-    public void DisableIntervals_Should_Freeze_Countdown_And_Never_Block()
+    public void DisableIntervals_Should_Clear_Remaining_And_Never_Block()
     {
         var s = Playing();
         s.DisableIntervals();
+
+        // Remaining is cleared immediately (no lingering countdown when unlimited).
+        s.TimeRemaining.Should().Be(TimeSpan.Zero);
 
         s.Tick(TimeSpan.FromHours(3));
 
         s.IntervalsEnabled.Should().BeFalse();
         s.Status.Should().Be(SessionStatus.Playing);
-        // Remaining is not consumed while unlimited.
-        s.TimeRemaining.Should().Be(TimeSpan.FromMinutes(10));
+        s.TimeRemaining.Should().Be(TimeSpan.Zero);
     }
 
     [Fact]
