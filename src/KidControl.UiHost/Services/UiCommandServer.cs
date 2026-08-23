@@ -6,7 +6,10 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Windows;
 using System.Windows.Media;
+using Concentus;
+using Concentus.Oggfile;
 using KidControl.Contracts;
+using NAudio.Wave;
 using Serilog;
 
 namespace KidControl.UiHost.Services;
@@ -20,7 +23,9 @@ namespace KidControl.UiHost.Services;
 public sealed class UiCommandServer : IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
-    private readonly List<MediaPlayer> _players = new(); // kept alive so playback isn't GC'd
+    private readonly List<MediaPlayer> _players = new();   // kept alive so MediaPlayer playback isn't GC'd
+    private readonly List<WaveOutEvent> _waveOuts = new(); // kept alive for NAudio (Opus) playback
+    private readonly object _sync = new();
     private bool _started;
 
     public void Start()
@@ -135,6 +140,14 @@ public sealed class UiCommandServer : IDisposable
             return false;
         }
 
+        // Telegram voice notes are OGG/Opus, which Windows Media Foundation can't decode
+        // without extra codecs. Decode those ourselves (Concentus) and play via NAudio.
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is ".ogg" or ".oga" or ".opus")
+        {
+            return PlayOpus(path);
+        }
+
         var app = Application.Current;
         if (app is null)
         {
@@ -173,6 +186,57 @@ public sealed class UiCommandServer : IDisposable
 
         var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
         return completed == tcs.Task && tcs.Task.Result;
+    }
+
+    /// <summary>Decodes an OGG/Opus file (e.g. a Telegram voice note) and plays it via NAudio.</summary>
+    private bool PlayOpus(string path)
+    {
+        try
+        {
+            const int sampleRate = 48000; // Opus always decodes at 48 kHz
+            const int channels = 1;       // Telegram voice notes are mono
+
+            var pcm = new List<short>();
+            using (var fileIn = File.OpenRead(path))
+            {
+                var decoder = OpusCodecFactory.CreateDecoder(sampleRate, channels);
+                var ogg = new OpusOggReadStream(decoder, fileIn);
+                while (ogg.HasNextPacket)
+                {
+                    var packet = ogg.DecodeNextPacket();
+                    if (packet is { Length: > 0 })
+                    {
+                        pcm.AddRange(packet);
+                    }
+                }
+            }
+
+            if (pcm.Count == 0)
+            {
+                Log.Warning("Opus decode produced no audio for {Path}", path);
+                return false;
+            }
+
+            var bytes = new byte[pcm.Count * sizeof(short)];
+            Buffer.BlockCopy(pcm.ToArray(), 0, bytes, 0, bytes.Length);
+
+            var waveStream = new RawSourceWaveStream(new MemoryStream(bytes), new WaveFormat(sampleRate, 16, channels));
+            var output = new WaveOutEvent();
+            lock (_sync) { _waveOuts.Add(output); }
+            output.PlaybackStopped += (_, _) =>
+            {
+                try { output.Dispose(); waveStream.Dispose(); } catch { /* ignore */ }
+                lock (_sync) { _waveOuts.Remove(output); }
+            };
+            output.Init(waveStream);
+            output.Play();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Opus playback failed for {Path}", path);
+            return false;
+        }
     }
 
     public void Dispose()

@@ -37,6 +37,11 @@
     <!-- MVVM (UI) -->
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.3.2" />
 
+    <!-- Audio playback (UI): NAudio for output, Concentus(+OggFile) to decode Telegram OGG/Opus voice -->
+    <PackageVersion Include="NAudio" Version="2.2.1" />
+    <PackageVersion Include="Concentus" Version="2.2.2" />
+    <PackageVersion Include="Concentus.OggFile" Version="1.0.7" />
+
     <!-- Build tooling -->
     <PackageVersion Include="MinVer" Version="6.0.0" />
 
