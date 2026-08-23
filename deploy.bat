@@ -54,11 +54,11 @@ set "KC_THUMBPRINT="
 rem  Self-update signature policy written into the installed config:
 rem    empty or true = require a valid signature (secure; needs signed releases + KC_THUMBPRINT)
 rem    false         = accept UNSIGNED releases (quick auto-update on a public repo; less strict)
-set "KC_REQUIRE_SIGNATURE="
+set "KC_REQUIRE_SIGNATURE=false"
 
 rem  How often the service checks GitHub for a new release (HH:MM:SS). Empty = default 6h.
-rem  For testing auto-update set e.g. 00:01:00 (1 minute). Change back afterwards.
-set "KC_CHECK_INTERVAL="
+rem  Do NOT use 1 minute (GitHub's 60/hr unauthenticated limit -> 403 -> "no updates").
+set "KC_CHECK_INTERVAL=00:15:00"
 rem ---------------------------------------------------------------------------
 
 setlocal EnableExtensions EnableDelayedExpansion
