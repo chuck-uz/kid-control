@@ -12,4 +12,5 @@ public sealed record SessionSnapshot
     public int RestMinutes { get; init; } = 20;
     public TimeSpan NightStart { get; init; } = TimeSpan.FromHours(22);
     public TimeSpan NightEnd { get; init; } = TimeSpan.FromHours(7);
+    public bool IntervalsEnabled { get; init; } = true;
 }

@@ -21,21 +21,50 @@ public sealed class Session
     public TimeSpan TimeRemaining { get; private set; } = TimeSpan.Zero;
     public ScheduleRule Rule { get; private set; } = ScheduleRule.Default;
 
+    /// <summary>
+    /// When false, the play/rest cadence is off: the computer is usable without limit
+    /// (the timer never counts down and never enters a rest break). The night window
+    /// still applies — it is enforced separately by the orchestrator.
+    /// </summary>
+    public bool IntervalsEnabled { get; private set; } = true;
+
     public Session()
     {
         TimeRemaining = Rule.PlayDuration;
     }
 
-    private Session(SessionStatus status, TimeSpan timeRemaining, ScheduleRule rule)
+    private Session(SessionStatus status, TimeSpan timeRemaining, ScheduleRule rule, bool intervalsEnabled)
     {
         Status = status;
         TimeRemaining = timeRemaining < TimeSpan.Zero ? TimeSpan.Zero : timeRemaining;
         Rule = rule;
+        IntervalsEnabled = intervalsEnabled;
     }
 
     /// <summary>Rehydrates a session from persisted values without running transitions.</summary>
-    public static Session Restore(SessionStatus status, TimeSpan timeRemaining, ScheduleRule rule)
-        => new(status, timeRemaining, rule);
+    public static Session Restore(SessionStatus status, TimeSpan timeRemaining, ScheduleRule rule, bool intervalsEnabled = true)
+        => new(status, timeRemaining, rule, intervalsEnabled);
+
+    /// <summary>Turns the play/rest limit off — unlimited use (night block still applies).</summary>
+    public void DisableIntervals()
+    {
+        IntervalsEnabled = false;
+        if (Status is SessionStatus.Resting)
+        {
+            Status = SessionStatus.Playing;
+        }
+    }
+
+    /// <summary>Turns the play/rest limit back on and restarts a fresh play phase.</summary>
+    public void EnableIntervals()
+    {
+        IntervalsEnabled = true;
+        if (Status is not (SessionStatus.ForceBlocked or SessionStatus.NightBlocked or SessionStatus.Paused))
+        {
+            Status = SessionStatus.Playing;
+            TimeRemaining = Rule.PlayDuration;
+        }
+    }
 
     /// <summary>Advances the timer. Only <see cref="SessionStatus.Playing"/> and
     /// <see cref="SessionStatus.Resting"/> consume time; other states are frozen.</summary>
@@ -47,6 +76,7 @@ public sealed class Session
         }
 
         if (elapsed == TimeSpan.Zero ||
+            !IntervalsEnabled ||
             Status is SessionStatus.ForceBlocked or SessionStatus.NightBlocked or SessionStatus.Paused)
         {
             return;

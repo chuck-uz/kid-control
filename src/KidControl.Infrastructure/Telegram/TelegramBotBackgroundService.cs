@@ -68,7 +68,9 @@ public sealed class TelegramBotBackgroundService(
     private static readonly InlineKeyboardMarkup RulesMenu = new(new[]
     {
         new[] { Btn("60 / 15", "/setrule 60 15"), Btn("45 / 15", "/setrule 45 15") },
-        new[] { Btn("40 / 20", "/setrule 40 20"), Btn("30 / 10", "/setrule 30 10") }
+        new[] { Btn("40 / 20", "/setrule 40 20"), Btn("30 / 10", "/setrule 30 10") },
+        new[] { Btn("♾️ Отключить интервалы", "/intervals off") },
+        new[] { Btn("✅ Включить интервалы", "/intervals on") }
     });
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

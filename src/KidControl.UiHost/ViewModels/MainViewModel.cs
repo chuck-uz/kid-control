@@ -37,6 +37,9 @@ public sealed partial class MainViewModel : ObservableObject
     private bool isNightModeActive;
 
     [ObservableProperty]
+    private bool isUnlimited;
+
+    [ObservableProperty]
     private string sessionLabel = "Игровая сессия";
 
     [ObservableProperty]
@@ -64,12 +67,23 @@ public sealed partial class MainViewModel : ObservableObject
                 _hasSnapshot = true;
             }
 
-            TimeRemaining = _lastKnownRemaining.ToString(@"hh\:mm\:ss");
             IsNightModeActive = state.IsNightMode;
+            IsUnlimited = state.IsUnlimited;
             IsBlocked = IsBlockingStatus(state.Status);
             IsNightBlocked = IsNightModeActive && IsBlocked;
-            SessionLabel = IsBlocked ? "Ограниченный режим" : "Игровая сессия";
-            ProgressPercent = ComputeProgress(_lastKnownRemaining);
+
+            if (IsUnlimited && !IsBlocked)
+            {
+                TimeRemaining = "∞";
+                SessionLabel = "Без ограничений";
+                ProgressPercent = 100;
+            }
+            else
+            {
+                TimeRemaining = _lastKnownRemaining.ToString(@"hh\:mm\:ss");
+                SessionLabel = IsBlocked ? "Ограниченный режим" : "Игровая сессия";
+                ProgressPercent = ComputeProgress(_lastKnownRemaining);
+            }
         });
     }
 
@@ -90,6 +104,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void ApplyLocalCountdownTick()
     {
+        if (IsUnlimited)
+        {
+            return; // no countdown when unlimited
+        }
+
         lock (_timeSync)
         {
             if (!_hasSnapshot || _lastKnownRemaining <= TimeSpan.Zero)

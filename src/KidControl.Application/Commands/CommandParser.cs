@@ -36,6 +36,7 @@ public static class CommandParser
             "/addtime" => ParseAddTime(tokens),
             "/setrule" => ParseSetRule(tokens),
             "/night" => ParseNight(tokens),
+            "/intervals" => ParseIntervals(tokens),
             _ => new SessionCommand.Unknown(Help)
         };
     }
@@ -61,6 +62,18 @@ public static class CommandParser
         }
 
         return new SessionCommand.Unknown("Формат: /setrule [игра_мин] [отдых_мин].");
+    }
+
+    private static SessionCommand ParseIntervals(string[] tokens)
+    {
+        if (tokens.Length >= 2)
+        {
+            var v = tokens[1].ToLowerInvariant();
+            if (v is "on" or "вкл" or "1" or "true") return new SessionCommand.SetIntervals(true);
+            if (v is "off" or "выкл" or "0" or "false") return new SessionCommand.SetIntervals(false);
+        }
+
+        return new SessionCommand.Unknown("Формат: /intervals on|off.");
     }
 
     private static SessionCommand ParseNight(string[] tokens)
