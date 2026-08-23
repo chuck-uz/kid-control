@@ -20,6 +20,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly object _timeSync = new();
     private TimeSpan _lastKnownRemaining = TimeSpan.Zero;
     private bool _hasSnapshot;
+    private int _shutdownInSeconds = -1;
 
     [ObservableProperty]
     private string timeRemaining = "00:00:00";
@@ -41,6 +42,10 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string sessionLabel = "Игровая сессия";
+
+    /// <summary>Large number shown on the block screen: the rest timer, or the night shutdown countdown.</summary>
+    [ObservableProperty]
+    private string blockCountdownText = "00:00:00";
 
     [ObservableProperty]
     private double progressPercent = 100;
@@ -71,6 +76,7 @@ public sealed partial class MainViewModel : ObservableObject
             IsUnlimited = state.IsUnlimited;
             IsBlocked = IsBlockingStatus(state.Status);
             IsNightBlocked = IsNightModeActive && IsBlocked;
+            _shutdownInSeconds = state.ShutdownInSeconds;
 
             if (IsUnlimited && !IsBlocked)
             {
@@ -84,6 +90,8 @@ public sealed partial class MainViewModel : ObservableObject
                 SessionLabel = IsBlocked ? "Ограниченный режим" : "Игровая сессия";
                 ProgressPercent = ComputeProgress(_lastKnownRemaining);
             }
+
+            UpdateBlockCountdown();
         });
     }
 
@@ -102,11 +110,24 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(TimeRemainingStr));
     }
 
+    private void UpdateBlockCountdown()
+    {
+        if (_shutdownInSeconds >= 0)
+        {
+            // Night shutdown grace: driven by the service (pushed each second).
+            BlockCountdownText = $"{_shutdownInSeconds / 60}:{_shutdownInSeconds % 60:D2}";
+        }
+        else
+        {
+            BlockCountdownText = _lastKnownRemaining.ToString(@"hh\:mm\:ss");
+        }
+    }
+
     private void ApplyLocalCountdownTick()
     {
-        if (IsUnlimited)
+        if (IsUnlimited || _shutdownInSeconds >= 0)
         {
-            return; // no countdown when unlimited
+            return; // no local countdown when unlimited or during the service-driven night shutdown
         }
 
         lock (_timeSync)
@@ -125,5 +146,6 @@ public sealed partial class MainViewModel : ObservableObject
 
         TimeRemaining = _lastKnownRemaining.ToString(@"hh\:mm\:ss");
         ProgressPercent = ComputeProgress(_lastKnownRemaining);
+        UpdateBlockCountdown();
     }
 }

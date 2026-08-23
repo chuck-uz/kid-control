@@ -5,4 +5,5 @@ public sealed record SessionStateDto(
     string Status,
     TimeSpan TimeRemaining,
     bool IsNightMode,
-    bool IsUnlimited = false);
+    bool IsUnlimited = false,
+    int ShutdownInSeconds = -1);
