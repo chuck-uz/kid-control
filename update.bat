@@ -19,7 +19,7 @@ set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
 
 rem  Which release to install. Pinned tag = exact version (recommended). Empty = latest.
-set "KC_TAG=v2.0.8"
+set "KC_TAG=v2.0.9"
 
 rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo'). Empty if public.
 set "KC_GH_TOKEN="
