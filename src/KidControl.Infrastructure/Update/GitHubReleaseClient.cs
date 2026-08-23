@@ -55,21 +55,40 @@ public sealed class GitHubReleaseClient(
         return ToUpdateInfo(release);
     }
 
-    /// <summary>Reads the latest tag from the github.com/.../releases/latest redirect (no API).</summary>
+    // Dedicated client that does NOT auto-follow redirects, so we can read the 302
+    // Location header from github.com/.../releases/latest deterministically (the shared
+    // typed client's redirect behavior is not relied upon).
+    private static readonly HttpClient RedirectProbe = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
+
+    /// <summary>Reads the latest tag from the github.com/.../releases/latest 302 Location (no API).</summary>
     private async Task<string?> ResolveLatestTagViaWebAsync(CancellationToken ct)
     {
         try
         {
             var url = $"https://github.com/{_config.Owner}/{_config.Repository}/releases/latest";
-            using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-            var finalUrl = resp.RequestMessage?.RequestUri?.ToString() ?? string.Empty;
-            var m = Regex.Match(finalUrl, @"/releases/tag/([^/?#]+)");
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.UserAgent.ParseAdd("KidControl-Updater/1.0");
+
+            using var resp = await RedirectProbe.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+            // Prefer the redirect target; fall back to the final request URI if already followed.
+            var target = resp.Headers.Location?.ToString();
+            if (string.IsNullOrEmpty(target))
+            {
+                target = resp.RequestMessage?.RequestUri?.ToString();
+            }
+
+            var m = Regex.Match(target ?? string.Empty, @"/releases/tag/([^/?#]+)");
             if (m.Success)
             {
                 return Uri.UnescapeDataString(m.Groups[1].Value);
             }
 
-            logger.LogWarning("Could not resolve latest tag (final url: {Url}).", finalUrl);
+            logger.LogWarning("Could not resolve latest tag (status {Status}, target '{Target}').",
+                (int)resp.StatusCode, target);
             return null;
         }
         catch (Exception ex)
