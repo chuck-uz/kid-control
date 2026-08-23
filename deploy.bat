@@ -18,8 +18,10 @@ rem ---------------------------------------------------------------------------
 set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
 
-rem  Which release to install. Empty = latest. Or pin one, e.g. v2.0.4.
-set "KC_TAG="
+rem  Which release to install. A pinned tag installs exactly that version (recommended,
+rem  and avoids the rate-limited GitHub API entirely). Empty = latest (needs the
+rem  fixed-name KidControl-Setup.zip asset on the release).
+set "KC_TAG=v2.0.4"
 
 rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo').
 rem  Empty for a public repo.
@@ -158,30 +160,36 @@ if (-not [string]::IsNullOrWhiteSpace($env:KC_CERT_FILE)) {
     Import-Certificate -FilePath $env:KC_CERT_FILE -CertStoreLocation Cert:\LocalMachine\TrustedPublisher | Out-Null
 }
 
-# ---- 2. Resolve the release and its setup zip asset ----------------------
-$relApi = if ([string]::IsNullOrWhiteSpace($tag)) {
-    "https://api.github.com/repos/$owner/$repo/releases/latest"
-} else {
-    "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
-}
-Info "Querying release: $relApi"
-$rel = Invoke-RestMethod -Uri $relApi -Headers $ua
-$asset = $rel.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
-if (-not $asset) { throw "Release $($rel.tag_name) has no .zip setup asset." }
-Ok ("Release: " + $rel.tag_name + "  asset: " + $asset.name)
-
-# ---- 3. Download + extract the setup zip ---------------------------------
+# ---- 2. Download the setup zip -------------------------------------------
+# Public repo: use the DIRECT release-download URL (github.com/.../releases/download/...).
+# It goes through the CDN, NOT api.github.com, so it is never hit by the 60/hr API
+# rate limit that was returning HTTP 403. Private repo: authenticated Releases API.
 if (Test-Path $extract) { Remove-Item -Recurse -Force $extract }
 New-Item -ItemType Directory -Force -Path $extract | Out-Null
 $zip = Join-Path $work 'setup.zip'
 
-Info 'Downloading setup zip'
-if (-not [string]::IsNullOrWhiteSpace($token)) {
-    # Private repo: download via the asset API with an octet-stream Accept header.
-    $dh = @{ 'User-Agent' = 'kidcontrol-deploy'; 'Authorization' = "Bearer $token"; 'Accept' = 'application/octet-stream' }
-    Invoke-WebRequest -Uri $asset.url -Headers $dh -OutFile $zip
+if ([string]::IsNullOrWhiteSpace($token)) {
+    if ([string]::IsNullOrWhiteSpace($tag)) {
+        $zipUrl = "https://github.com/$owner/$repo/releases/latest/download/KidControl-Setup.zip"
+        Info "Downloading latest setup: $zipUrl"
+    } else {
+        $zipUrl = "https://github.com/$owner/$repo/releases/download/$tag/KidControl-Setup-$tag.zip"
+        Info "Downloading setup $tag : $zipUrl"
+    }
+    Invoke-WebRequest -Uri $zipUrl -Headers $ua -OutFile $zip
 } else {
-    Invoke-WebRequest -Uri $asset.browser_download_url -Headers $ua -OutFile $zip
+    $relApi = if ([string]::IsNullOrWhiteSpace($tag)) {
+        "https://api.github.com/repos/$owner/$repo/releases/latest"
+    } else {
+        "https://api.github.com/repos/$owner/$repo/releases/tags/$tag"
+    }
+    Info "Querying private release: $relApi"
+    $rel = Invoke-RestMethod -Uri $relApi -Headers $ua
+    $asset = $rel.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
+    if (-not $asset) { throw "Release $($rel.tag_name) has no .zip setup asset." }
+    $dh = @{ 'User-Agent' = 'kidcontrol-deploy'; 'Authorization' = "Bearer $token"; 'Accept' = 'application/octet-stream' }
+    Info "Downloading setup: $($asset.name)"
+    Invoke-WebRequest -Uri $asset.url -Headers $dh -OutFile $zip
 }
 
 Info 'Extracting'
