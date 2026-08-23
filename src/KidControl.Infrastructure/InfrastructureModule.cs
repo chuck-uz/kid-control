@@ -43,6 +43,7 @@ public static class InfrastructureModule
         services.AddSingleton<ISystemController, SystemController>();
         services.AddSingleton<ITelegramGateway, TelegramGateway>();
         services.AddSingleton<IUpdateService, UpdateService>();
+        services.AddSingleton<IAdminRegistry, AdminRegistry>();
 
         // Telegram client (token-driven; a placeholder keeps DI valid when unconfigured).
         services.AddSingleton<ITelegramBotClient>(sp =>
