@@ -1,0 +1,5 @@
+# Replace fleet.example.com with your real hostname. Caddy auto-provisions TLS.
+fleet.example.com {
+    encode gzip
+    reverse_proxy backend:8080
+}

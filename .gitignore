@@ -15,6 +15,12 @@ artifacts/
 **/appsettings.Local.json
 **/appsettings.Secrets.json
 !**/appsettings.template.json
+# Backend appsettings hold no secrets (empty conn string / localhost dev default) — keep them.
+!src/KidControl.Backend/appsettings.json
+!src/KidControl.Backend/appsettings.Development.json
+
+# Rendered backend env (real secrets) — never commit; the template is committed.
+deploy/.env
 
 # Code-signing material — private key must never be committed
 signing/
