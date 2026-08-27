@@ -13,7 +13,8 @@ namespace KidControl.Infrastructure.Fleet;
 /// arrives (the heartbeat returns a policy only when the agent is behind), so a steady state
 /// never resets the timer.
 /// </summary>
-public sealed class FleetPolicyApplier(SessionService session, ILogger<FleetPolicyApplier> logger)
+public sealed class FleetPolicyApplier(
+    SessionService session, FleetUpdateTarget updateTarget, ILogger<FleetPolicyApplier> logger)
 {
     /// <summary>Pure translation of a policy into the ordered commands that realise it.</summary>
     public static IReadOnlyList<SessionCommand> ToCommands(PolicyDto policy) =>
@@ -29,6 +30,9 @@ public sealed class FleetPolicyApplier(SessionService session, ILogger<FleetPoli
     {
         foreach (var command in ToCommands(policy))
             await session.ExecuteAsync(command, ct).ConfigureAwait(false);
+
+        // Hybrid self-update (§9): the backend dictates which version to run.
+        updateTarget.Set(policy.TargetVersion);
 
         logger.LogInformation(
             "Applied fleet policy v{Version}: {Play}/{Rest} min, night {NightEnabled} {NightStart}-{NightEnd}, intervals {Intervals}, target {Target}.",

@@ -36,6 +36,10 @@ public static class InfrastructureModule
         services.Configure<UpdateConfig>(config.GetSection(UpdateConfig.SectionName));
         services.Configure<ProtectionConfig>(config.GetSection(ProtectionConfig.SectionName));
 
+        // Self-update target (RFC §9). Default "latest" so standalone behaves as before; the
+        // fleet policy applier overwrites it in managed mode.
+        services.AddSingleton<Fleet.FleetUpdateTarget>();
+
         // Ports.
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<ISessionStore, JsonSessionStore>();

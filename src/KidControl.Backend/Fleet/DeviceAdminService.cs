@@ -83,6 +83,39 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
             return desired.Version; // no change → don't bump
 
         desired.Paused = paused;
+        return await BumpAsync(desired, actor, paused ? "desired.pause" : "desired.resume", ct);
+    }
+
+    /// <summary>Set the <c>force_blocked</c> override (§6 desired-state). Idempotent.</summary>
+    public async Task<int?> SetForceBlockedAsync(Guid deviceId, bool blocked, string actor = "operator",
+        CancellationToken ct = default)
+    {
+        var desired = await db.DeviceDesired.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+        if (desired is null)
+            return null;
+        if (desired.ForceBlocked == blocked)
+            return desired.Version;
+
+        desired.ForceBlocked = blocked;
+        return await BumpAsync(desired, actor, blocked ? "desired.block" : "desired.unblock", ct);
+    }
+
+    /// <summary>Set the <c>night_bypass_until</c> override (§6 desired-state). Idempotent.</summary>
+    public async Task<int?> SetNightBypassAsync(Guid deviceId, DateTimeOffset? until, string actor = "operator",
+        CancellationToken ct = default)
+    {
+        var desired = await db.DeviceDesired.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+        if (desired is null)
+            return null;
+        if (desired.NightBypassUntil == until)
+            return desired.Version;
+
+        desired.NightBypassUntil = until;
+        return await BumpAsync(desired, actor, "desired.night_bypass", ct);
+    }
+
+    private async Task<int> BumpAsync(DeviceDesired desired, string actor, string action, CancellationToken ct)
+    {
         desired.Version += 1;
         desired.UpdatedAt = clock.GetUtcNow();
 
@@ -90,8 +123,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
         {
             TenantId = Tenant.DefaultId,
             Actor = actor,
-            Action = paused ? "desired.pause" : "desired.resume",
-            DeviceId = deviceId,
+            Action = action,
+            DeviceId = desired.DeviceId,
             DetailJson = $"{{\"version\":{desired.Version}}}",
             At = clock.GetUtcNow()
         });

@@ -18,6 +18,7 @@ public sealed class UpdateBackgroundService(
     IUpdateService updateService,
     ITelegramGateway telegram,
     IOptions<UpdateConfig> config,
+    Fleet.FleetUpdateTarget updateTarget,
     ILogger<UpdateBackgroundService> logger) : BackgroundService
 {
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(20);
@@ -42,18 +43,28 @@ public sealed class UpdateBackgroundService(
         {
             try
             {
-                var info = await updateService.CheckAsync(stoppingToken).ConfigureAwait(false);
-                if (info is not null && !string.Equals(info.Tag, _handledTag, StringComparison.Ordinal))
+                // Managed mode may pin a target version (§9). A pinned target overrides the
+                // "track latest" behaviour and can move up OR down to exactly that tag.
+                var target = updateTarget.Current;
+                if (Fleet.FleetUpdateTarget.NeedsPinnedInstall(updateService.CurrentVersionText, target))
                 {
-                    if (_config.AutoInstall)
+                    await HandlePinnedTargetAsync(target, stoppingToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    var info = await updateService.CheckAsync(stoppingToken).ConfigureAwait(false);
+                    if (info is not null && !string.Equals(info.Tag, _handledTag, StringComparison.Ordinal))
                     {
-                        await AutoInstallAsync(info, stoppingToken).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        logger.LogInformation("Update available: {Tag} (current {Current}).", info.Tag, updateService.CurrentVersion);
-                        await telegram.NotifyUpdateAvailableAsync(info, stoppingToken).ConfigureAwait(false);
-                        _handledTag = info.Tag;
+                        if (_config.AutoInstall)
+                        {
+                            await AutoInstallAsync(info, stoppingToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            logger.LogInformation("Update available: {Tag} (current {Current}).", info.Tag, updateService.CurrentVersion);
+                            await telegram.NotifyUpdateAvailableAsync(info, stoppingToken).ConfigureAwait(false);
+                            _handledTag = info.Tag;
+                        }
                     }
                 }
             }
@@ -95,6 +106,37 @@ public sealed class UpdateBackgroundService(
             await SafeNotifyAsync(
                 $"⚠️ Автообновление до {info.Tag} не удалось: {ex.Message}. Обновите вручную (update.bat).", ct)
                 .ConfigureAwait(false);
+        }
+    }
+
+    private async Task HandlePinnedTargetAsync(string target, CancellationToken ct)
+    {
+        var tag = target.StartsWith('v') || target.StartsWith('V') ? target : "v" + target;
+        if (string.Equals(tag, _handledTag, StringComparison.Ordinal))
+            return; // already attempted this pinned tag
+
+        if (!_config.AutoInstall)
+        {
+            logger.LogInformation("Pinned update target {Tag} (current {Current}); auto-install off — notify only.",
+                tag, updateService.CurrentVersionText);
+            _handledTag = tag;
+            return;
+        }
+
+        _handledTag = tag;
+        logger.LogInformation("Pinned update: installing {Tag} (current {Current}).", tag, updateService.CurrentVersionText);
+        await SafeNotifyAsync($"⬇️ Устанавливаю целевую версию {tag}. Служба перезапустится автоматически.", ct)
+            .ConfigureAwait(false);
+
+        try
+        {
+            await updateService.StartInstallAsync(tag, ct).ConfigureAwait(false);
+            logger.LogInformation("Pinned update: installer launched for {Tag}.", tag);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Pinned update to {Tag} failed.", tag);
+            await SafeNotifyAsync($"⚠️ Установка целевой версии {tag} не удалась: {ex.Message}.", ct).ConfigureAwait(false);
         }
     }
 

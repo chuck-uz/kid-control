@@ -250,9 +250,18 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       Все 31 тест Infrastructure зелёные.
 
 ### Блок C. Ширина (весь Phase 1)
-- [ ] **T9. Полный набор desired-состояния.** `force_blocked`, `night_enabled`+окно,
+- [x] **T9. Полный набор desired-состояния.** `force_blocked`, `night_enabled`+окно,
       `intervals_enabled`, `target_version`. *DoD:* каждое меняется с бекенда и
       реконсилится; целевая версия управляет self-update (гибрид §9).
+      *Готово:* desired-оверрайды `force_blocked` и `night_bypass_until` — новые команды
+      `SetForceBlocked`/`SetNightBypass` в `SessionService`, полный `FleetDesiredApplier`
+      (приоритет `paused` над блоком, идемпотентно), бекенд `SetForceBlockedAsync`/
+      `SetNightBypassAsync` + эндпоинты `/block`, `/night-bypass`. `night_enabled`+окно и
+      `intervals_enabled` реконсилятся политикой ещё с T6 (`FleetPolicyApplier`). Гибрид §9:
+      `FleetUpdateTarget` (holder, default `latest`), applier ставит цель из `policy.TargetVersion`,
+      `UpdateBackgroundService` при пине ставит именно эту версию (вверх/вниз), нормализуя
+      версии. 4 desired-теста + 4 update-target-теста + 2 бекенд-теста. E2e на Postgres:
+      force_block/night_bypass/target_version меняются с бекенда и приходят в heartbeat-delta.
 - [ ] **T10. Полный набор команд (без медиа).** `reset_timer`, `shutdown`, `restart`,
       `update_now`. *DoD:* каждая исполняется на агенте с ack; медиа-кнопки в managed
       помечены «Phase 2».
