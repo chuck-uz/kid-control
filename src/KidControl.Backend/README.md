@@ -4,8 +4,26 @@ Control-plane for the KidControl fleet (see [RFC-01](../../docs/RFC-01-fleet-bac
 ASP.NET Core (.NET 8) + PostgreSQL (EF Core / Npgsql). Shares `KidControl.Fleet.Contracts`
 and `KidControl.Domain` with the agent, so policy types never drift.
 
-**T2 status (skeleton):** boots, connects to Postgres, exposes health endpoints. Data
-model + migrations are T3; agent endpoints and the in-backend bot come in later tasks.
+**Status (through T3):** boots, applies migrations + seeds on start, exposes health
+endpoints, and owns the full §4 data model. Agent endpoints and the in-backend bot come in
+later tasks (T4+).
+
+## Data model (T3)
+The §4 entities live in `Entities/` and are mapped by `Persistence/FleetDbContext.cs` to
+snake_case PostgreSQL tables (`tenant`, `admin`, `device`, `device_policy`,
+`device_desired`, `device_status`, `command`, `enroll_code`, `audit`). `command.payload_json`
+and `audit.detail_json` are `jsonb`. Policy/desired carry a monotonic per-device `version`.
+
+Migrations are in `Persistence/Migrations/`. On boot the app runs `Database.Migrate()` and
+seeds the reserved single tenant (in the migration) plus the operator admin (runtime, from
+`FLEET_ADMIN_CHAT_ID` — nothing committed). Disable the boot migrate with `Fleet:AutoMigrate=false`.
+
+```bash
+# create/apply the schema by hand (design-time; needs the dotnet-ef tool)
+dotnet tool install --global dotnet-ef --version 8.0.10
+dotnet ef database update --project src/KidControl.Backend \
+  --connection "Host=localhost;Port=5432;Database=kidcontrol;Username=kidcontrol;Password=..."
+```
 
 ## Endpoints
 - `GET /health` — liveness (no DB), returns `{status, service, version}`.
