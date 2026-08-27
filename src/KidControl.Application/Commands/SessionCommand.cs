@@ -28,6 +28,12 @@ public abstract record SessionCommand
     public sealed record ShutdownPc : SessionCommand;
     public sealed record RestartPc : SessionCommand;
 
+    /// <summary>Force-block override: true holds the machine blocked; false releases it.</summary>
+    public sealed record SetForceBlocked(bool Blocked) : SessionCommand;
+
+    /// <summary>Suspend the night block until the given moment (null clears any bypass).</summary>
+    public sealed record SetNightBypass(DateTimeOffset? Until) : SessionCommand;
+
     /// <summary>Input that could not be understood; carries a help message.</summary>
     public sealed record Unknown(string Help) : SessionCommand;
 }

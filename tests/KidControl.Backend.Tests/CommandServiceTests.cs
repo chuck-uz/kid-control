@@ -141,4 +141,32 @@ public class CommandServiceTests
 
         (await db.DeviceDesired.FindAsync(id))!.Paused.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task SetForceBlocked_bumps_version_then_is_idempotent()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var admin = new DeviceAdminService(db, new TestClock(T0));
+
+        (await admin.SetForceBlockedAsync(id, true)).Should().Be(2);
+        (await admin.SetForceBlockedAsync(id, true)).Should().Be(2);  // no change → no bump
+        (await db.DeviceDesired.FindAsync(id))!.ForceBlocked.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SetNightBypass_sets_and_clears_with_version_bumps()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var admin = new DeviceAdminService(db, new TestClock(T0));
+        var until = T0.AddHours(9);
+
+        (await admin.SetNightBypassAsync(id, until)).Should().Be(2);
+        (await admin.SetNightBypassAsync(id, until)).Should().Be(2);   // same value, no bump
+        (await db.DeviceDesired.FindAsync(id))!.NightBypassUntil.Should().Be(until);
+
+        (await admin.SetNightBypassAsync(id, null)).Should().Be(3);    // cleared
+        (await db.DeviceDesired.FindAsync(id))!.NightBypassUntil.Should().BeNull();
+    }
 }

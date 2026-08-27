@@ -223,6 +223,26 @@ public sealed class SessionService
                 await _system.RestartAsync(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
                 reply = "🔄 Команда перезагрузки отправлена (через 10 сек).";
                 break;
+            case SessionCommand.SetForceBlocked fb:
+                lock (_sync)
+                {
+                    if (fb.Blocked)
+                    {
+                        _session.ForceBlock();
+                    }
+                    else if (_session.Status == SessionStatus.ForceBlocked)
+                    {
+                        _session.ReleaseBlock();
+                    }
+                }
+                reply = fb.Blocked ? "🔒 Force-block включён." : "🔓 Force-block снят.";
+                break;
+            case SessionCommand.SetNightBypass nb:
+                lock (_sync) { _nightBypassUntil = nb.Until ?? DateTimeOffset.MinValue; }
+                reply = nb.Until is { } until
+                    ? $"🌙 Ночная блокировка снята до {until:HH\\:mm}."
+                    : "🌙 Ночной обход сброшен.";
+                break;
             case SessionCommand.Unknown u:
                 return u.Help;
             default:

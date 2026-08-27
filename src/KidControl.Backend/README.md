@@ -58,6 +58,11 @@ by id. The `paused` override is durable desired-state (survives restarts, shown 
 - `POST /agent/commands/ack` — **device token**; `{acks:[{id, ok, error?}]}` (idempotent).
 - `POST /admin/devices/{id}/pause` — `{paused}` → sets the desired override, bumps its version
   (admin key).
+- `POST /admin/devices/{id}/block` — `{blocked}` → force-block desired override (admin key).
+- `POST /admin/devices/{id}/night-bypass` — `{until}` (ISO time, or null to clear) → night-bypass
+  desired override (admin key). The agent applies `paused` › `force_blocked`, and suspends the
+  night block until `until`. Pinning `policy.targetVersion` to `vX.Y.Z` moves the agent to that
+  exact version (hybrid self-update, §9); `latest` tracks newest as before.
 - `POST /admin/devices/{id}/commands` — `{type, payload?, ttlSeconds?}` (default TTL 300s) →
   queues a command, returns `{commandId, ttlSeconds}` (admin key).
 

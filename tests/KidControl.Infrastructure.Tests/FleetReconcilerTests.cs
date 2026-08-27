@@ -107,7 +107,7 @@ public class FleetReconcilerTests
             client,
             new InMemoryStateStore(seed ?? new FleetState()),
             new InMemoryProcessedStore(),
-            new FleetPolicyApplier(session, NullLogger<FleetPolicyApplier>.Instance),
+            new FleetPolicyApplier(session, new FleetUpdateTarget(), NullLogger<FleetPolicyApplier>.Instance),
             new FleetDesiredApplier(session, NullLogger<FleetDesiredApplier>.Instance),
             new FleetCommandApplier(session, NullLogger<FleetCommandApplier>.Instance),
             session,

@@ -172,6 +172,24 @@ app.MapPost("/admin/devices/{id:guid}/pause", async (Guid id, PauseRequest body,
     return version is null ? Results.NotFound() : Results.Ok(new { desiredVersion = version, paused = body.Paused });
 });
 
+// Force-block / release a device (desired-state override).
+app.MapPost("/admin/devices/{id:guid}/block", async (Guid id, BlockRequest body, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var version = await svc.SetForceBlockedAsync(id, body.Blocked, ct: ct);
+    return version is null ? Results.NotFound() : Results.Ok(new { desiredVersion = version, blocked = body.Blocked });
+});
+
+// Set / clear the night-bypass window (desired-state override).
+app.MapPost("/admin/devices/{id:guid}/night-bypass", async (Guid id, NightBypassRequest body, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var version = await svc.SetNightBypassAsync(id, body.Until, ct: ct);
+    return version is null ? Results.NotFound() : Results.Ok(new { desiredVersion = version, until = body.Until });
+});
+
 // Queue a one-shot command (e.g. add_time). Default TTL 5 min (§7: overrides expire fast).
 app.MapPost("/admin/devices/{id:guid}/commands", async (Guid id, EnqueueCommandRequest body, HttpRequest http,
     IConfiguration cfg, CommandService svc, CancellationToken ct) =>
