@@ -186,9 +186,16 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       создаёт схему, boot с пустой БД мигрирует и сеет `tenant`+`admin`.
 
 ### Блок B. Сквозной скелет (1 устройство)
-- [ ] **T4. Enrollment.** Генерация одноразового кода (сервис + позже кнопка/команда бота),
+- [x] **T4. Enrollment.** Генерация одноразового кода (сервис + позже кнопка/команда бота),
       `POST /agent/enroll` → пер-девайсный токен (хэш в БД), Bearer-middleware.
       *DoD:* по коду создаётся `device`, выдаётся токен; повторный код невалиден.
+      *Готово:* `FleetTokens` (код base32 без похожих символов, токен 256-бит base64url,
+      SHA-256-хэш), `EnrollmentService` (mint кода с TTL, single-use в serializable-tx,
+      дефолтные policy/desired, аудит), Bearer-схема `DeviceToken`. Эндпоинты
+      `POST /agent/enroll`, `GET /agent/whoami` (protected), `POST /admin/enroll-code`
+      (временный, под `FLEET_ADMIN_API_KEY`, до бота из T11). 9 unit-тестов (InMemory) +
+      e2e на Postgres 16: mint→enroll→whoami→повтор=409→неизвестный=404→плохой токен=401;
+      токен хранится только хэшем.
 - [ ] **T5. Dual-mode агент + enrollment-клиент.** Переключатель по `Backend:Url`,
       хранение токена в защищённом `%ProgramData%`, выключение встроенного бота в managed.
       *DoD:* агент с заданным URL проходит enroll и хранит токен; без URL — как сейчас.
