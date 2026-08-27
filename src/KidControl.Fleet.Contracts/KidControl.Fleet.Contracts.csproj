@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Wire contracts shared by the fleet backend and the agent. DTOs are tolerant
+    (primitive fields, records with defaults) so deserialization never throws on
+    partial/unknown data. Domain types (ScheduleRule/NightWindow) are the single
+    source of validation, reached through mapping helpers — hence the one project
+    reference to KidControl.Domain (which itself has no dependencies).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\KidControl.Domain\KidControl.Domain.csproj" />
+  </ItemGroup>
+</Project>

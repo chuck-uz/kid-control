@@ -165,10 +165,13 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
 Каждая задача — с критерием готовности (`DoD`).
 
 ### Блок A. Контракты и бекенд-скелет
-- [ ] **T1. Общая библиотека контрактов.** Проект `KidControl.Fleet.Contracts` (net8.0,
-      без зависимостей): DTO политики (версионируемой), desired-state, команд, enrollment,
-      heartbeat/статус. Переиспользует типы `ScheduleRule`/`NightWindow` из домена.
-      *DoD:* компилируется, покрыт сериализационными тестами; агент и бекенд ссылаются на него.
+- [x] **T1. Общая библиотека контрактов.** ✅ Проект `KidControl.Fleet.Contracts` (net8.0,
+      ссылка только на `KidControl.Domain`): `PolicyDto` (версионируемая, с маппингом на
+      `ScheduleRule`/`NightWindow`), `DesiredStateDto`, `CommandDto`+`CommandTypes`+ack,
+      `EnrollRequest/Response`, `HeartbeatRequest/Response`, `StatusReportDto`, `FleetJson`
+      (толерантная сериализация). 7 тестов (round-trip, толерантность к неизвестным/
+      отсутствующим полям, маппинг в домен, payload-хелперы/TTL). *DoD выполнен;* ссылки
+      из агента/бекенда добавятся в T2/T5, когда появятся эти проекты.
 - [ ] **T2. Скелет бекенда.** Проект `KidControl.Backend` (ASP.NET Core), EF Core +
       Npgsql, `docker-compose` (backend+postgres), Caddy-конфиг, Infisical-рендер `.env`,
       health-эндпоинт. *DoD:* поднимается локально в Docker, `/health` = 200.
