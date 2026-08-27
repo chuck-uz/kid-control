@@ -13,12 +13,22 @@ public sealed record EnrollOutcome(bool Ok, EnrollResponse? Response, HttpStatus
     public static EnrollOutcome Failure(HttpStatusCode? s, string e) => new(false, null, s, e);
 }
 
+/// <summary>Backend transport used by the agent; an interface so reconciliation can be tested against a fake backend.</summary>
+public interface IFleetClient
+{
+    Task<EnrollOutcome> EnrollAsync(EnrollRequest request, CancellationToken ct = default);
+    Task<HeartbeatResponse?> HeartbeatAsync(HeartbeatRequest request, CancellationToken ct = default);
+    Task<IReadOnlyList<CommandDto>> PollCommandsAsync(int waitSeconds, CancellationToken ct = default);
+    Task AckCommandsAsync(CommandAckBatch batch, CancellationToken ct = default);
+    void UseToken(string token);
+}
+
 /// <summary>
-/// Typed HTTP client for the fleet backend. T5 covers enrollment only; heartbeat and the
-/// long-poll command endpoints are added on this same client in T6/T7. All traffic uses the
-/// shared <see cref="FleetJson"/> settings so wire types can't drift from the backend.
+/// Typed HTTP client for the fleet backend (enrollment, heartbeat, long-poll commands). All
+/// traffic uses the shared <see cref="FleetJson"/> settings so wire types can't drift from the
+/// backend.
 /// </summary>
-public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger)
+public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger) : IFleetClient
 {
     public async Task<EnrollOutcome> EnrollAsync(EnrollRequest request, CancellationToken ct = default)
     {

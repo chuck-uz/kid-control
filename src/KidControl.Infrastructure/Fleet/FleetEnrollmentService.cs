@@ -17,7 +17,7 @@ public enum EnrollmentStep { NotManaged, AlreadyEnrolled, NoCode, Enrolled, Fail
 /// </summary>
 public sealed class FleetEnrollmentService(
     FleetConfig config,
-    FleetClient client,
+    IFleetClient client,
     IDeviceIdentityStore store,
     AgentInfo agent,
     TimeProvider clock,
