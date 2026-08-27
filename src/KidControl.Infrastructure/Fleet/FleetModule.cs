@@ -8,7 +8,8 @@ namespace KidControl.Infrastructure.Fleet;
 /// <summary>
 /// Managed-mode composition (RFC §8). Registered by the host ONLY when a backend URL is
 /// configured; in standalone mode none of this is wired and the agent behaves exactly as
-/// before. Enrollment is the only fleet behaviour in T5 — heartbeat/commands land in T6/T7.
+/// before. Wires enrollment, the durable caches, the appliers, and the reconciler the agent
+/// loop drives (heartbeat → commands, offline-first).
 /// </summary>
 [SupportedOSPlatform("windows")]
 public static class FleetModule
@@ -29,13 +30,14 @@ public static class FleetModule
         services.AddSingleton<FleetPolicyApplier>();
         services.AddSingleton<FleetDesiredApplier>();
         services.AddSingleton<FleetCommandApplier>();
+        services.AddSingleton<FleetReconciler>();
 
         var baseUrl = fleet.Url.EndsWith('/') ? fleet.Url : fleet.Url + "/";
-        services.AddHttpClient<FleetClient>(client =>
+        services.AddHttpClient<IFleetClient, FleetClient>(client =>
         {
             client.BaseAddress = new Uri(baseUrl);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("KidControl-Agent/1.0");
-            client.Timeout = TimeSpan.FromSeconds(90); // headroom for T7 long-poll
+            client.Timeout = TimeSpan.FromSeconds(90); // headroom for the long-poll
         });
 
         return services;
