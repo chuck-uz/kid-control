@@ -1,6 +1,7 @@
 using KidControl.Contracts;
 using KidControl.Infrastructure;
 using KidControl.Infrastructure.Configuration;
+using KidControl.Infrastructure.Fleet;
 using KidControl.Infrastructure.Ipc;
 using KidControl.Infrastructure.Telegram;
 using KidControl.Infrastructure.Update;
@@ -37,10 +38,23 @@ builder.Services.AddSerilog((services, configuration) =>
 
 builder.Services.AddKidControlInfrastructure(builder.Configuration);
 
+// Local enforcement is identical in both modes (RFC §8) — always on.
 builder.Services.AddHostedService<Worker>();
-builder.Services.AddHostedService<TelegramBotBackgroundService>();
 builder.Services.AddHostedService<CommandPipeServer>();
 builder.Services.AddHostedService<UpdateBackgroundService>();
+
+// Mode switch: Backend URL set ⇒ managed (backend owns policy/commands, embedded bot off);
+// unset ⇒ standalone (embedded Telegram bot, local JSON), exactly as before.
+var fleet = builder.Configuration.ReadFleetConfig();
+if (fleet.IsManaged)
+{
+    builder.Services.AddKidControlFleet(fleet);
+    builder.Services.AddHostedService<FleetEnrollmentHostedService>();
+}
+else
+{
+    builder.Services.AddHostedService<TelegramBotBackgroundService>();
+}
 
 var host = builder.Build();
 

@@ -196,9 +196,18 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       (временный, под `FLEET_ADMIN_API_KEY`, до бота из T11). 9 unit-тестов (InMemory) +
       e2e на Postgres 16: mint→enroll→whoami→повтор=409→неизвестный=404→плохой токен=401;
       токен хранится только хэшем.
-- [ ] **T5. Dual-mode агент + enrollment-клиент.** Переключатель по `Backend:Url`,
+- [x] **T5. Dual-mode агент + enrollment-клиент.** Переключатель по `Backend:Url`,
       хранение токена в защищённом `%ProgramData%`, выключение встроенного бота в managed.
       *DoD:* агент с заданным URL проходит enroll и хранит токен; без URL — как сейчас.
+      *Готово:* секция конфига `Fleet` (`Url`/`EnrollCode`/интервалы), `FleetClient`
+      (typed HttpClient, `EnrollAsync` на общем `FleetJson`), `FleetEnrollmentService`
+      (идемпотентный enroll-if-needed, офлайн-устойчивый), `DpapiDeviceIdentityStore`
+      (токен зашифрован DPAPI machine-scope в `%ProgramData%\KidControl\device_identity.dat`,
+      atomic write, никогда не логируется), `FleetEnrollmentHostedService`. В `Program.cs`
+      переключатель: `Fleet:Url` задан → managed (встроенный бот выключен, включён
+      fleet-enrollment); пусто → standalone как раньше. Локальное применение (Worker,
+      CommandPipe, Update) одинаково в обоих режимах. 7 unit-тестов (managed/standalone,
+      enroll+persist, already-enrolled skip, no-code, 409, бекенд недоступен → non-fatal).
 - [ ] **T6. Heartbeat + синхронизация политики.** `POST /agent/heartbeat` (статус вверх,
       политика/desired вниз при отставании версии), durable-кэш политики у агента,
       применение (правило → сброс фазы сразу). *DoD:* меняю правило на бекенде → в течение
