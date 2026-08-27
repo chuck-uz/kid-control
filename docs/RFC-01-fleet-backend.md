@@ -178,8 +178,12 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       `CanConnectAsync`). `deploy/`: `docker-compose.yml` (postgres+backend+опц. Caddy),
       `Caddyfile`, `.env.template`; `Dockerfile` (multi-stage). *DoD выполнен:* собирается,
       локально запускается, `GET /health` = 200, `/health/db` = 503 без БД (грациозно).
-- [ ] **T3. Модель данных + миграции.** Сущности §4, первая EF-миграция.
+- [x] **T3. Модель данных + миграции.** Сущности §4, первая EF-миграция.
       *DoD:* `dotnet ef database update` создаёт схему; сид одного `tenant`+`admin`.
+      *Готово:* 9 сущностей + `FleetDbContext` (snake_case, jsonb, индексы), миграция
+      `InitialFleetSchema` (10 таблиц), `tenant` сеется в миграции, `admin` — рантайм-сидер
+      `FleetSeed` из `FLEET_ADMIN_CHAT_ID`. Проверено на Postgres 16: `database update`
+      создаёт схему, boot с пустой БД мигрирует и сеет `tenant`+`admin`.
 
 ### Блок B. Сквозной скелет (1 устройство)
 - [ ] **T4. Enrollment.** Генерация одноразового кода (сервис + позже кнопка/команда бота),
