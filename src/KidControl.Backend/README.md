@@ -34,11 +34,21 @@ persisted. Agent endpoints authenticate with `Authorization: Bearer <token>` (sc
 - `POST /agent/enroll` — anonymous. Body `{code, machineName, osInfo?, agentVersion?}` →
   `{deviceId, token}`. `404` unknown code · `400` expired · `409` already used. Provisions
   the device's default policy/desired rows.
-- `GET /agent/whoami` — **requires** a device token; returns `{deviceId, name}` (a probe;
-  heartbeat/commands arrive in T6/T7).
+- `GET /agent/whoami` — **requires** a device token; returns `{deviceId, name}` (a probe).
 - `POST /admin/enroll-code` — mints a code. **Temporary** operator surface until the bot
   (T11) owns it: guarded by `X-Admin-Key` matching `Fleet:AdminApiKey` / `FLEET_ADMIN_API_KEY`;
   returns `404` (disabled) when that key is unset.
+
+## Heartbeat & policy sync (T6)
+- `POST /agent/heartbeat` — **requires** a device token. Body `{status, policyVersion,
+  desiredVersion}`; records the reported status + liveness and answers `{policy?, desired?,
+  hasCommands}` — the `policy`/`desired` snapshot is present **only** when the agent's held
+  version is behind (delta sync). An operator policy edit bumps the per-device version, so the
+  change reaches the device on its next heartbeat.
+- `GET /admin/devices` — list devices with live status + policy version (admin key).
+- `POST /admin/devices/{id}/policy` — partial policy edit (`{playMinutes?, restMinutes?,
+  nightEnabled?, nightStart?, nightEnd?, intervalsEnabled?, targetVersion?}`); bumps the
+  version, returns `{policyVersion}` (admin key).
 
 ## Endpoints
 - `GET /health` — liveness (no DB), returns `{status, service, version}`.

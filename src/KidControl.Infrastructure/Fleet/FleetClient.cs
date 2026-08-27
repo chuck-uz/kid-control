@@ -49,7 +49,34 @@ public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger)
         }
     }
 
-    /// <summary>Attach the device bearer token to this client for authenticated calls (T6+).</summary>
+    /// <summary>
+    /// Send a heartbeat (status up; policy/desired delta down). Returns null when the backend
+    /// is unreachable or replies with an error — the caller keeps enforcing the cached policy.
+    /// </summary>
+    public async Task<HeartbeatResponse?> HeartbeatAsync(HeartbeatRequest request, CancellationToken ct = default)
+    {
+        try
+        {
+            using var content = new StringContent(
+                FleetJson.Serialize(request), Encoding.UTF8, "application/json");
+            using var resp = await http.PostAsync("agent/heartbeat", content, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Heartbeat failed: {Status}", (int)resp.StatusCode);
+                return null;
+            }
+
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return FleetJson.Deserialize<HeartbeatResponse>(body);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Heartbeat could not reach the backend; staying on cached policy.");
+            return null;
+        }
+    }
+
+    /// <summary>Attach the device bearer token to this client for authenticated calls.</summary>
     public void UseToken(string token)
         => http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 }

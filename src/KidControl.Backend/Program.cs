@@ -21,6 +21,8 @@ builder.Services.AddDbContext<FleetDbContext>(options =>
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<EnrollmentService>();
+builder.Services.AddScoped<HeartbeatService>();
+builder.Services.AddScoped<DeviceAdminService>();
 
 // Per-device bearer auth for agent endpoints; enrollment stays anonymous.
 builder.Services.AddAuthentication(DeviceTokenAuthHandler.SchemeName)
@@ -91,31 +93,66 @@ app.MapPost("/agent/enroll", async (EnrollRequest req, EnrollmentService svc, Ca
     };
 });
 
-// ── Agent: token probe (proves the Bearer scheme works; real endpoints land in T6/T7) ────
+// ── Agent: token probe (proves the Bearer scheme works) ──────────────────────────────────
 app.MapGet("/agent/whoami", (System.Security.Claims.ClaimsPrincipal user) =>
     Results.Ok(new { deviceId = user.DeviceId(), name = user.Identity?.Name }))
     .RequireAuthorization();
 
-// ── Operator: mint an enroll code. Temporary surface until the bot (T11) owns this. ──────
-// Guarded by a static admin key (Fleet:AdminApiKey / FLEET_ADMIN_API_KEY); disabled (404) if unset.
+// ── Agent: heartbeat — report status + versions, receive policy/desired delta (§5.1) ─────
+app.MapPost("/agent/heartbeat", async (HeartbeatRequest req, System.Security.Claims.ClaimsPrincipal user,
+    HeartbeatService svc, CancellationToken ct) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    var resp = await svc.HandleAsync(deviceId.Value, req, ct);
+    return resp is null ? Results.Unauthorized() : Results.Ok(resp);
+}).RequireAuthorization();
+
+// ── Operator surface. Temporary (X-Admin-Key), until the bot (T11) owns it. ───────────────
+// Mint an enroll code.
 app.MapPost("/admin/enroll-code", async (HttpRequest http, IConfiguration cfg, EnrollmentService svc,
     CancellationToken ct) =>
 {
-    var adminKey = cfg["Fleet:AdminApiKey"] ?? Environment.GetEnvironmentVariable("FLEET_ADMIN_API_KEY");
-    if (string.IsNullOrWhiteSpace(adminKey))
-        return Results.NotFound(); // feature off until configured
-
-    if (!http.Headers.TryGetValue("X-Admin-Key", out var provided) ||
-        !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.UTF8.GetBytes(provided.ToString()),
-            System.Text.Encoding.UTF8.GetBytes(adminKey)))
-        return Results.Unauthorized();
-
+    if (AdminGuard(http, cfg) is { } deny) return deny;
     var code = await svc.CreateCodeAsync(actor: "operator", ct: ct);
     return Results.Ok(new { code = code.Code, expiresAt = code.ExpiresAt });
 });
 
+// List devices with their live status + policy version.
+app.MapGet("/admin/devices", async (HttpRequest http, IConfiguration cfg, DeviceAdminService svc,
+    CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    return Results.Ok(await svc.ListDevicesAsync(ct));
+});
+
+// Edit a device policy (bumps the version → propagates on the device's next heartbeat).
+app.MapPost("/admin/devices/{id:guid}/policy", async (Guid id, PolicyPatch patch, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var version = await svc.UpdatePolicyAsync(id, patch, ct: ct);
+    return version is null ? Results.NotFound() : Results.Ok(new { policyVersion = version });
+});
+
 app.Run();
+
+// Shared guard for the temporary operator API: returns a deny-result, or null when allowed.
+// Disabled (404) unless Fleet:AdminApiKey / FLEET_ADMIN_API_KEY is set; else requires X-Admin-Key.
+static IResult? AdminGuard(HttpRequest http, IConfiguration cfg)
+{
+    var adminKey = cfg["Fleet:AdminApiKey"] ?? Environment.GetEnvironmentVariable("FLEET_ADMIN_API_KEY");
+    if (string.IsNullOrWhiteSpace(adminKey))
+        return Results.NotFound();
+
+    var provided = http.Headers["X-Admin-Key"].ToString();
+    var ok = System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+        System.Text.Encoding.UTF8.GetBytes(provided),
+        System.Text.Encoding.UTF8.GetBytes(adminKey));
+    return ok ? null : Results.Unauthorized();
+}
 
 // Exposed so WebApplicationFactory-based integration tests can reference the entry point.
 public partial class Program;
