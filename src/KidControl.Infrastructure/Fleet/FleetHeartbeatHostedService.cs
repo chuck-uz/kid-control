@@ -19,6 +19,7 @@ public sealed class FleetHeartbeatHostedService(
     IDeviceIdentityStore identityStore,
     IFleetStateStore stateStore,
     FleetPolicyApplier applier,
+    FleetDesiredApplier desiredApplier,
     SessionService session,
     AgentInfo agent,
     ILogger<FleetHeartbeatHostedService> logger) : BackgroundService
@@ -30,13 +31,21 @@ public sealed class FleetHeartbeatHostedService(
 
         var state = stateStore.Load();
 
-        // Offline-first: enforce the last known policy immediately, before touching the network.
+        // Offline-first: enforce the last known policy + desired immediately, before the network.
         if (state.Policy is not null)
         {
             try { await applier.ApplyAsync(state.Policy, stoppingToken); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogError(ex, "Failed to apply cached policy on startup.");
+            }
+        }
+        if (state.Desired is not null)
+        {
+            try { await desiredApplier.ApplyAsync(state.Desired, stoppingToken); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Failed to apply cached desired-state on startup.");
             }
         }
 
@@ -106,10 +115,10 @@ public sealed class FleetHeartbeatHostedService(
 
         if (resp.Desired is not null && resp.Desired.Version > state.DesiredVersion)
         {
-            // T6 caches the desired-state; APPLYING it (pause/block/bypass) lands in T7.
+            // Apply the paused override (T7); force-block + night-bypass land in T9.
+            await desiredApplier.ApplyAsync(resp.Desired, ct);
             state.Desired = resp.Desired;
             changed = true;
-            logger.LogInformation("Fleet: desired-state v{Version} received (application in T7).", resp.Desired.Version);
         }
 
         if (changed)

@@ -50,6 +50,7 @@ if (fleet.IsManaged)
 {
     builder.Services.AddKidControlFleet(fleet);
     builder.Services.AddHostedService<FleetHeartbeatHostedService>();
+    builder.Services.AddHostedService<FleetCommandHostedService>();
 }
 else
 {

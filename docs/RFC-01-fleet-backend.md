@@ -222,10 +222,20 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       применяет кэш → enroll → цикл heartbeat; бекенд недоступен → остаётся на кэше).
       6 бекенд-тестов + 2 агентских; e2e на Postgres: правка политики → следующий heartbeat
       отдаёт новую версию, актуальный агент — `null`. Применение desired (пауза/блок) — T7.
-- [ ] **T7. Long-poll команды (скелет: `add_time` + `pause`).** `GET /agent/commands`
+- [x] **T7. Long-poll команды (скелет: `add_time` + `pause`).** `GET /agent/commands`
       (long-poll) + `POST /ack`; desired-оверрайд `paused`. *DoD:* из бота ставлю паузу →
       устройство на паузе (state) и это видно централизованно; `+30 мин` применяется один
       раз, повтор по ack не дублируется; протухшая по TTL команда игнорируется.
+      *Готово:* бекенд — `CommandService` (enqueue/long-poll с `CommandSignal`-пробуждением/
+      ack, at-least-once доставка, TTL-фильтр), `DeviceAdminService.SetPausedAsync`
+      (desired-оверрайд, bump версии, идемпотентно), эндпоинты `GET /agent/commands?wait=`,
+      `POST /agent/commands/ack`, `POST /admin/devices/{id}/pause`,
+      `POST /admin/devices/{id}/commands`. Агент — `FleetCommandApplier` (add_time/reset_timer),
+      `JsonProcessedCommandStore` (dedupe apply-once, durable, bounded), `FleetCommandHostedService`
+      (long-poll → dedupe → apply → ack), `FleetDesiredApplier` (пауза/resume, идемпотентно) в
+      heartbeat-лупе. 7 бекенд-тестов + 4 агентских. E2e на Postgres: пауза видна централизованно;
+      add_time повторно доставляется до ack, но применяется один раз; протухшая по TTL —
+      игнорируется; long-poll просыпается за ~1с. Force-block + night-bypass — T9.
 - [ ] **T8. Офлайн-реконсиляция + тесты.** Отключение сети: агент применяет кэш; команды
       копятся; на реконнекте — политика → desired → очередь (TTL, идемпотентность).
       *DoD:* интеграционные тесты сценариев офлайн/реконнект зелёные.

@@ -50,6 +50,17 @@ persisted. Agent endpoints authenticate with `Authorization: Bearer <token>` (sc
   nightEnabled?, nightStart?, nightEnd?, intervalsEnabled?, targetVersion?}`); bumps the
   version, returns `{policyVersion}` (admin key).
 
+## Commands & pause (T7)
+One-shot commands are TTL'd, delivered at-least-once, and acked; the agent applies each **once**
+by id. The `paused` override is durable desired-state (survives restarts, shown centrally).
+- `GET /agent/commands?wait=N` — **device token**; long-poll (up to `N`≤60s, woken instantly on
+  enqueue) for pending commands `[{id, type, payload, ttlAt}]`, or `[]` on timeout.
+- `POST /agent/commands/ack` — **device token**; `{acks:[{id, ok, error?}]}` (idempotent).
+- `POST /admin/devices/{id}/pause` — `{paused}` → sets the desired override, bumps its version
+  (admin key).
+- `POST /admin/devices/{id}/commands` — `{type, payload?, ttlSeconds?}` (default TTL 300s) →
+  queues a command, returns `{commandId, ttlSeconds}` (admin key).
+
 ## Endpoints
 - `GET /health` — liveness (no DB), returns `{status, service, version}`.
 - `GET /health/db` — readiness, 200 if PostgreSQL is reachable, 503 otherwise.
