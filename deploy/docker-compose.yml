@@ -1,0 +1,58 @@
+# KidControl fleet backend — deploy on the Tashkent VM.
+#   1) render .env from Infisical (see .env.template) next to this file
+#   2) docker compose up -d --build
+# Caddy (already on the host, or the caddy service below) terminates TLS and
+# reverse-proxies to the backend on :8080.
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kidcontrol}
+      POSTGRES_USER: ${POSTGRES_USER:-kidcontrol}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kidcontrol}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ..
+      dockerfile: src/KidControl.Backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Fleet: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-kidcontrol};Username=${POSTGRES_USER:-kidcontrol};Password=${POSTGRES_PASSWORD}"
+      Telegram__BotToken: "${TELEGRAM_BOT_TOKEN:-}"
+    expose:
+      - "8080"
+    ports:
+      # Bind to loopback; Caddy on the host proxies TLS -> 127.0.0.1:8088.
+      - "127.0.0.1:8088:8080"
+
+  # Optional: run Caddy here instead of on the host. Comment out if the host already runs Caddy.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:

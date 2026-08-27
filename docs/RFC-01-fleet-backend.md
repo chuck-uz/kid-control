@@ -172,9 +172,12 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       (толерантная сериализация). 7 тестов (round-trip, толерантность к неизвестным/
       отсутствующим полям, маппинг в домен, payload-хелперы/TTL). *DoD выполнен;* ссылки
       из агента/бекенда добавятся в T2/T5, когда появятся эти проекты.
-- [ ] **T2. Скелет бекенда.** Проект `KidControl.Backend` (ASP.NET Core), EF Core +
-      Npgsql, `docker-compose` (backend+postgres), Caddy-конфиг, Infisical-рендер `.env`,
-      health-эндпоинт. *DoD:* поднимается локально в Docker, `/health` = 200.
+- [x] **T2. Скелет бекенда.** ✅ Проект `KidControl.Backend` (ASP.NET Core, ссылается на
+      `Fleet.Contracts`+`Domain`), EF Core + Npgsql, пустой `FleetDbContext` (сущности — T3),
+      health-эндпоинты `/health` (liveness) и `/health/db` (readiness через
+      `CanConnectAsync`). `deploy/`: `docker-compose.yml` (postgres+backend+опц. Caddy),
+      `Caddyfile`, `.env.template`; `Dockerfile` (multi-stage). *DoD выполнен:* собирается,
+      локально запускается, `GET /health` = 200, `/health/db` = 503 без БД (грациозно).
 - [ ] **T3. Модель данных + миграции.** Сущности §4, первая EF-миграция.
       *DoD:* `dotnet ef database update` создаёт схему; сид одного `tenant`+`admin`.
 

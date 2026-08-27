@@ -30,6 +30,11 @@
     <!-- Integrations -->
     <PackageVersion Include="Telegram.Bot" Version="22.9.6.1" />
 
+    <!-- Backend (fleet): EF Core + PostgreSQL -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.10" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.10" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+
     <!-- Windows-specific -->
     <PackageVersion Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
     <PackageVersion Include="System.Drawing.Common" Version="8.0.10" />
