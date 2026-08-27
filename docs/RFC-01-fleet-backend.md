@@ -208,10 +208,20 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       fleet-enrollment); пусто → standalone как раньше. Локальное применение (Worker,
       CommandPipe, Update) одинаково в обоих режимах. 7 unit-тестов (managed/standalone,
       enroll+persist, already-enrolled skip, no-code, 409, бекенд недоступен → non-fatal).
-- [ ] **T6. Heartbeat + синхронизация политики.** `POST /agent/heartbeat` (статус вверх,
+- [x] **T6. Heartbeat + синхронизация политики.** `POST /agent/heartbeat` (статус вверх,
       политика/desired вниз при отставании версии), durable-кэш политики у агента,
       применение (правило → сброс фазы сразу). *DoD:* меняю правило на бекенде → в течение
       heartbeat агент применил; после перезагрузки агента политика из кэша.
+      *Готово:* бекенд — `HeartbeatService` (upsert `device_status`+liveness, delta-снимок
+      политики/desired по версии, `hasCommands`), `DeviceAdminService` (правка политики с
+      bump версии, список устройств), эндпоинты `POST /agent/heartbeat` (protected),
+      `GET /admin/devices`, `POST /admin/devices/{id}/policy`. Агент — `FleetState`+
+      `JsonFleetStateStore` (durable-кэш политики/desired в `%ProgramData%`),
+      `FleetPolicyApplier` (PolicyDto → те же `SessionCommand`, правило последним = сброс
+      фазы), `FleetClient.HeartbeatAsync`, `FleetHeartbeatHostedService` (на старте
+      применяет кэш → enroll → цикл heartbeat; бекенд недоступен → остаётся на кэше).
+      6 бекенд-тестов + 2 агентских; e2e на Postgres: правка политики → следующий heartbeat
+      отдаёт новую версию, актуальный агент — `null`. Применение desired (пауза/блок) — T7.
 - [ ] **T7. Long-poll команды (скелет: `add_time` + `pause`).** `GET /agent/commands`
       (long-poll) + `POST /ack`; desired-оверрайд `paused`. *DoD:* из бота ставлю паузу →
       устройство на паузе (state) и это видно централизованно; `+30 мин` применяется один

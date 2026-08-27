@@ -23,7 +23,9 @@ public static class FleetModule
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(FleetEnrollmentService.DescribeThisAgent());
         services.AddSingleton<IDeviceIdentityStore, DpapiDeviceIdentityStore>();
-        services.AddScoped<FleetEnrollmentService>();
+        services.AddSingleton<IFleetStateStore, JsonFleetStateStore>();
+        services.AddSingleton<FleetEnrollmentService>();
+        services.AddSingleton<FleetPolicyApplier>();
 
         var baseUrl = fleet.Url.EndsWith('/') ? fleet.Url : fleet.Url + "/";
         services.AddHttpClient<FleetClient>(client =>

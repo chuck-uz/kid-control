@@ -49,7 +49,7 @@ var fleet = builder.Configuration.ReadFleetConfig();
 if (fleet.IsManaged)
 {
     builder.Services.AddKidControlFleet(fleet);
-    builder.Services.AddHostedService<FleetEnrollmentHostedService>();
+    builder.Services.AddHostedService<FleetHeartbeatHostedService>();
 }
 else
 {
