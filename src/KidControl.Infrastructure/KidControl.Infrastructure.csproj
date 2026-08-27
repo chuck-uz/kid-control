@@ -10,12 +10,14 @@
     <PackageReference Include="Serilog" />
     <PackageReference Include="Telegram.Bot" />
     <PackageReference Include="System.ServiceProcess.ServiceController" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\KidControl.Application\KidControl.Application.csproj" />
     <ProjectReference Include="..\KidControl.Domain\KidControl.Domain.csproj" />
     <ProjectReference Include="..\KidControl.Contracts\KidControl.Contracts.csproj" />
+    <ProjectReference Include="..\KidControl.Fleet.Contracts\KidControl.Fleet.Contracts.csproj" />
     <ProjectReference Include="..\KidControl.Platform\KidControl.Platform.csproj" />
   </ItemGroup>
 </Project>
