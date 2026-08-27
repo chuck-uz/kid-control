@@ -20,9 +20,11 @@ builder.Services.AddDbContext<FleetDbContext>(options =>
     options.UseNpgsql(connectionString).UseSnakeCaseNamingConvention());
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<CommandSignal>();
 builder.Services.AddScoped<EnrollmentService>();
 builder.Services.AddScoped<HeartbeatService>();
 builder.Services.AddScoped<DeviceAdminService>();
+builder.Services.AddScoped<CommandService>();
 
 // Per-device bearer auth for agent endpoints; enrollment stays anonymous.
 builder.Services.AddAuthentication(DeviceTokenAuthHandler.SchemeName)
@@ -110,6 +112,30 @@ app.MapPost("/agent/heartbeat", async (HeartbeatRequest req, System.Security.Cla
     return resp is null ? Results.Unauthorized() : Results.Ok(resp);
 }).RequireAuthorization();
 
+// ── Agent: long-poll for pending commands, and ack executed ones (§5.1) ──────────────────
+app.MapGet("/agent/commands", async (int? wait, System.Security.Claims.ClaimsPrincipal user,
+    CommandService svc, CancellationToken ct) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    var waitFor = TimeSpan.FromSeconds(Math.Clamp(wait ?? 0, 0, 60)); // cap the long-poll
+    var commands = await svc.PollAsync(deviceId.Value, waitFor, ct);
+    return Results.Ok(commands);
+}).RequireAuthorization();
+
+app.MapPost("/agent/commands/ack", async (CommandAckBatch batch, System.Security.Claims.ClaimsPrincipal user,
+    CommandService svc, CancellationToken ct) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    await svc.AckAsync(deviceId.Value, batch, ct);
+    return Results.Ok();
+}).RequireAuthorization();
+
 // ── Operator surface. Temporary (X-Admin-Key), until the bot (T11) owns it. ───────────────
 // Mint an enroll code.
 app.MapPost("/admin/enroll-code", async (HttpRequest http, IConfiguration cfg, EnrollmentService svc,
@@ -135,6 +161,28 @@ app.MapPost("/admin/devices/{id:guid}/policy", async (Guid id, PolicyPatch patch
     if (AdminGuard(http, cfg) is { } deny) return deny;
     var version = await svc.UpdatePolicyAsync(id, patch, ct: ct);
     return version is null ? Results.NotFound() : Results.Ok(new { policyVersion = version });
+});
+
+// Pause / resume a device (desired-state override).
+app.MapPost("/admin/devices/{id:guid}/pause", async (Guid id, PauseRequest body, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var version = await svc.SetPausedAsync(id, body.Paused, ct: ct);
+    return version is null ? Results.NotFound() : Results.Ok(new { desiredVersion = version, paused = body.Paused });
+});
+
+// Queue a one-shot command (e.g. add_time). Default TTL 5 min (§7: overrides expire fast).
+app.MapPost("/admin/devices/{id:guid}/commands", async (Guid id, EnqueueCommandRequest body, HttpRequest http,
+    IConfiguration cfg, CommandService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    if (string.IsNullOrWhiteSpace(body.Type))
+        return Results.BadRequest(new { error = "type is required" });
+
+    var ttl = TimeSpan.FromSeconds(Math.Clamp(body.TtlSeconds ?? 300, 5, 86_400));
+    var commandId = await svc.EnqueueAsync(id, body.Type, body.Payload, ttl, ct: ct);
+    return commandId is null ? Results.NotFound() : Results.Ok(new { commandId, ttlSeconds = (int)ttl.TotalSeconds });
 });
 
 app.Run();

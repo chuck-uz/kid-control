@@ -66,4 +66,37 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
         await db.SaveChangesAsync(ct);
         return policy.Version;
     }
+
+    /// <summary>
+    /// Set the long-lived <c>paused</c> override (§6 desired-state). Bumps the desired version
+    /// so it reaches the device on its next heartbeat and shows centrally as paused. Idempotent —
+    /// setting the same value again is a no-op (no version churn).
+    /// </summary>
+    public async Task<int?> SetPausedAsync(Guid deviceId, bool paused, string actor = "operator",
+        CancellationToken ct = default)
+    {
+        var desired = await db.DeviceDesired.FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+        if (desired is null)
+            return null;
+
+        if (desired.Paused == paused)
+            return desired.Version; // no change → don't bump
+
+        desired.Paused = paused;
+        desired.Version += 1;
+        desired.UpdatedAt = clock.GetUtcNow();
+
+        db.Audits.Add(new Audit
+        {
+            TenantId = Tenant.DefaultId,
+            Actor = actor,
+            Action = paused ? "desired.pause" : "desired.resume",
+            DeviceId = deviceId,
+            DetailJson = $"{{\"version\":{desired.Version}}}",
+            At = clock.GetUtcNow()
+        });
+
+        await db.SaveChangesAsync(ct);
+        return desired.Version;
+    }
 }

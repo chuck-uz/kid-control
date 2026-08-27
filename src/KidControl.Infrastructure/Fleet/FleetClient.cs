@@ -76,6 +76,48 @@ public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger)
         }
     }
 
+    /// <summary>
+    /// Long-poll for pending commands, waiting up to <paramref name="waitSeconds"/> server-side.
+    /// Returns an empty list on timeout or any error (the caller simply re-polls).
+    /// </summary>
+    public async Task<IReadOnlyList<CommandDto>> PollCommandsAsync(int waitSeconds, CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await http.GetAsync($"agent/commands?wait={waitSeconds}", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Command poll failed: {Status}", (int)resp.StatusCode);
+                return [];
+            }
+
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return FleetJson.Deserialize<List<CommandDto>>(body) ?? [];
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Command poll could not reach the backend.");
+            return [];
+        }
+    }
+
+    /// <summary>Ack executed commands (idempotent). Best-effort — a failed ack just re-delivers.</summary>
+    public async Task AckCommandsAsync(CommandAckBatch batch, CancellationToken ct = default)
+    {
+        try
+        {
+            using var content = new StringContent(
+                FleetJson.Serialize(batch), Encoding.UTF8, "application/json");
+            using var resp = await http.PostAsync("agent/commands/ack", content, ct);
+            if (!resp.IsSuccessStatusCode)
+                logger.LogWarning("Command ack failed: {Status}", (int)resp.StatusCode);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Command ack could not reach the backend; will re-ack later.");
+        }
+    }
+
     /// <summary>Attach the device bearer token to this client for authenticated calls.</summary>
     public void UseToken(string token)
         => http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
