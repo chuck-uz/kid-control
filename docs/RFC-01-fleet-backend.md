@@ -262,9 +262,16 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       `UpdateBackgroundService` при пине ставит именно эту версию (вверх/вниз), нормализуя
       версии. 4 desired-теста + 4 update-target-теста + 2 бекенд-теста. E2e на Postgres:
       force_block/night_bypass/target_version меняются с бекенда и приходят в heartbeat-delta.
-- [ ] **T10. Полный набор команд (без медиа).** `reset_timer`, `shutdown`, `restart`,
+- [x] **T10. Полный набор команд (без медиа).** `reset_timer`, `shutdown`, `restart`,
       `update_now`. *DoD:* каждая исполняется на агенте с ack; медиа-кнопки в managed
       помечены «Phase 2».
+      *Готово:* `FleetCommandApplier` исполняет `add_time`/`reset_timer`/`shutdown`/`restart`
+      через общий `SessionService`-путь и `update_now` через `IUpdateService`
+      (явный `tag` → пин `FleetUpdateTarget` → latest; уже актуально = no-op ok). Медиа
+      `screenshot`/`play_audio` — Phase 2 (ack как не-исполнено, без повторной доставки).
+      8 агентских тестов (shutdown/restart/reset исполняются с ack; update_now по tag/пину/
+      latest/актуально; медиа = Phase 2). Бекенд доставляет команды типо-агностично — e2e:
+      все 4 типа приходят с payload (`update_now`→`tag`). Бот пометит медиа «Phase 2» в T11.
 - [ ] **T11. Бот в бекенде: устройства + меню.** Long-poll бота внутри бекенда; верхний
       уровень — список устройств; выбор → текущее меню (📊/➕/🎮/💻/⚙️/🌙/📦/👤), привязанное
       к устройству; обзор «Все устройства»; команды `/enroll`, отзыв устройства, админы.

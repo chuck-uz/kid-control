@@ -34,13 +34,22 @@ public class FleetCommandTests
     }
 
     [Fact]
-    public void ResetTimer_maps_and_unknown_verbs_are_unsupported()
+    public void ResetTimer_shutdown_restart_map_to_session_commands()
     {
         FleetCommandApplier.ToSessionCommand(Cmd(CommandTypes.ResetTimer))
             .Should().BeOfType<SessionCommand.ResetTimer>();
-        // Not yet handled in T7 (they arrive in T10) → null so the loop acks them as failed.
-        FleetCommandApplier.ToSessionCommand(Cmd(CommandTypes.Shutdown)).Should().BeNull();
+        FleetCommandApplier.ToSessionCommand(Cmd(CommandTypes.Shutdown))
+            .Should().BeOfType<SessionCommand.ShutdownPc>();
+        FleetCommandApplier.ToSessionCommand(Cmd(CommandTypes.Restart))
+            .Should().BeOfType<SessionCommand.RestartPc>();
+    }
+
+    [Fact]
+    public void UpdateNow_and_media_are_not_session_commands()
+    {
+        // Handled in ApplyAsync, not the pure session-command map.
         FleetCommandApplier.ToSessionCommand(Cmd(CommandTypes.UpdateNow)).Should().BeNull();
+        FleetCommandApplier.ToSessionCommand(Cmd(CommandTypes.Screenshot)).Should().BeNull();
     }
 
     [Fact]
