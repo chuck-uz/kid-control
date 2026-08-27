@@ -25,6 +25,21 @@ dotnet ef database update --project src/KidControl.Backend \
   --connection "Host=localhost;Port=5432;Database=kidcontrol;Username=kidcontrol;Password=..."
 ```
 
+## Enrollment & auth (T4)
+An operator mints a **single-use code**; an agent redeems it for a **per-device bearer
+token**. Only the token's SHA-256 hash is stored — the plaintext is returned once and never
+persisted. Agent endpoints authenticate with `Authorization: Bearer <token>` (scheme
+`DeviceToken`, resolved to a non-revoked device by `token_hash`).
+
+- `POST /agent/enroll` — anonymous. Body `{code, machineName, osInfo?, agentVersion?}` →
+  `{deviceId, token}`. `404` unknown code · `400` expired · `409` already used. Provisions
+  the device's default policy/desired rows.
+- `GET /agent/whoami` — **requires** a device token; returns `{deviceId, name}` (a probe;
+  heartbeat/commands arrive in T6/T7).
+- `POST /admin/enroll-code` — mints a code. **Temporary** operator surface until the bot
+  (T11) owns it: guarded by `X-Admin-Key` matching `Fleet:AdminApiKey` / `FLEET_ADMIN_API_KEY`;
+  returns `404` (disabled) when that key is unset.
+
 ## Endpoints
 - `GET /health` — liveness (no DB), returns `{status, service, version}`.
 - `GET /health/db` — readiness, 200 if PostgreSQL is reachable, 503 otherwise.
