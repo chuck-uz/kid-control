@@ -40,10 +40,12 @@ services:
       # Bind to loopback; Caddy on the host proxies TLS -> 127.0.0.1:8088.
       - "127.0.0.1:8088:8080"
 
-  # Optional: run Caddy here instead of on the host. Comment out if the host already runs Caddy.
+  # Optional TLS terminator. Enable with:  docker compose --profile caddy up -d --build
+  # Leave it off if the host already runs Caddy (it proxies to 127.0.0.1:8088).
   caddy:
     image: caddy:2
     restart: unless-stopped
+    profiles: ["caddy"]
     depends_on:
       - backend
     ports:
