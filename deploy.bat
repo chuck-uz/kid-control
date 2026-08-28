@@ -21,7 +21,7 @@ set "KC_REPO=kid-control"
 rem  Which release to install. A pinned tag installs exactly that version (recommended,
 rem  and avoids the rate-limited GitHub API entirely). Empty = latest (needs the
 rem  fixed-name KidControl-Setup.zip asset on the release).
-set "KC_TAG=v2.0.10"
+set "KC_TAG=v2.1.0"
 
 rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo').
 rem  Empty for a public repo.
