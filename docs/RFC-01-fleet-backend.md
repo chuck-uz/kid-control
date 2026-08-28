@@ -287,18 +287,19 @@ audit            (id, tenant_id, actor, action, device_id, detail_json, at)
       DI-граф проверен загрузкой; live-Telegram — в T12 (нужен токен + реальный агент).
 
 ### Блок D. Выпуск
-- [~] **T12. Деплой на VM.** docker-compose + Caddy (TLS) + Infisical на VM; смоук:
+- [x] **T12. Деплой на VM.** docker-compose + Caddy (TLS) + Infisical на VM; смоук:
       enroll реального агента, смена политики, команда, офлайн-тест. *DoD:* бекенд доступен
       по HTTPS, один реальный ПК управляется из бота.
-      *Готово (проверяемо локально):* Dockerfile исправлен (MinVer override — сборка без `.git`),
-      Caddy вынесен в опциональный compose-профиль, `deploy/DEPLOY.md` — runbook + чеклист
-      смоука (Infisical, HTTPS, enroll, смена политики, команда, офлайн-тест) + шаги для агента
-      и отката. **Весь стек собран и прогнан локально через Docker:** образ (394 МБ) билдится и
-      стартует; `docker compose up` (postgres+backend) мигрирует и сеет админа; через контейнер
-      прошли enroll → policy-delta (40/20→50/10) → команда +30 с ack; падение БД → liveness 200 /
-      readiness 503, восстановление → 200.
-      *Осталось оператору (нужны его ресурсы):* деплой на VM Ташкент, реальный домен+HTTPS,
-      токен бота, enroll реального Windows-ПК. Скрипт — в `deploy/DEPLOY.md`.
+      *Развёрнуто на бою (VM Ташкент 157.22.133.185):* бекенд живёт на
+      **https://kidcontrol.oresh.in** (валидный Let's Encrypt через общий Caddy-прокси, сеть
+      `edge`). DNS `kidcontrol.oresh.in` создан в Cloudflare. Образ собран под linux/amd64 и
+      перенесён `docker save|load` (VM не тянула SDK). `postgres`+`backend` (`restart:
+      unless-stopped`), миграции применены, админ `65310731` засеян. Бот **@controlkid_bot**
+      long-poll'ит внутри бекенда. Боевой смоук по HTTPS: `/health`+`/health/db`=200; enroll →
+      policy-delta (40/20→50/10) → команда +30 с ack; падение БД → liveness 200 / readiness 503.
+      Dockerfile исправлен (MinVer override), Caddy — опциональный compose-профиль,
+      `deploy/DEPLOY.md` — runbook + чеклист. *Осталось пользователю:* открыть бот, `/enroll`,
+      прописать `Fleet:Url`+код на реальном Windows-ПК (3 шага из DEPLOY.md).
 - [ ] **T13. Документация и гайд миграции.** README бекенда, схема enroll, как перевести
       существующий standalone в managed и обратно; обновить `deploy.bat`/`update.bat`
       (опции `KC_BACKEND_URL`/enroll). *DoD:* по гайду можно поднять бекенд и подключить агент.
