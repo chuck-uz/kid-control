@@ -66,6 +66,16 @@ by id. The `paused` override is durable desired-state (survives restarts, shown 
 - `POST /admin/devices/{id}/commands` — `{type, payload?, ttlSeconds?}` (default TTL 300s) →
   queues a command, returns `{commandId, ttlSeconds}` (admin key).
 
+## Operator bot (T11)
+`FleetBotBackgroundService` long-polls Telegram inside the backend (enabled by `Telegram:BotToken`
+/ `TELEGRAM_BOT_TOKEN`; no-ops when unset). Top level is the device list; selecting a device opens
+the familiar folder menu (📊 status · ➕ time · 🎮 app · 💻 pc · ⚙️ intervals · 🌙 night · 📦 version
+· 👤 admins) bound to that device. Actions run through the fleet services (`FleetBotActions`): state
+edits via policy/desired (version bump → reconciled on the device's next heartbeat), imperative
+actions via the command queue. Admins are the `admin` table (`DbAdminRegistry`; the last admin can't
+be removed). `/enroll` mints a code, `/all` shows an overview, device revoke cuts the token. Media
+(screenshot/audio) are labelled Phase 2.
+
 ## Endpoints
 - `GET /health` — liveness (no DB), returns `{status, service, version}`.
 - `GET /health/db` — readiness, 200 if PostgreSQL is reachable, 503 otherwise.

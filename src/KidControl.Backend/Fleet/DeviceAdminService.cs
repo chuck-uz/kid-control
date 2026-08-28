@@ -34,6 +34,30 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
                 d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining))
             .ToListAsync(ct);
 
+    public async Task<DeviceSummary?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default)
+        => await db.Devices.AsNoTracking()
+            .Where(d => d.Id == deviceId && !d.Revoked)
+            .Select(d => new DeviceSummary(
+                d.Id, d.Name, d.GroupLabel, d.LastSeenAt, d.AgentVersion,
+                d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining))
+            .FirstOrDefaultAsync(ct);
+
+    /// <summary>Revoke a device (cuts its token off) without deleting its history.</summary>
+    public async Task<bool> RevokeAsync(Guid deviceId, string actor = "operator", CancellationToken ct = default)
+    {
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && !d.Revoked, ct);
+        if (device is null)
+            return false;
+        device.Revoked = true;
+        db.Audits.Add(new Audit
+        {
+            TenantId = Tenant.DefaultId, Actor = actor, Action = "device.revoke",
+            DeviceId = deviceId, At = clock.GetUtcNow()
+        });
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
     /// <summary>Apply a partial policy edit; returns the new version, or null if device unknown.</summary>
     public async Task<int?> UpdatePolicyAsync(Guid deviceId, PolicyPatch patch, string actor = "operator",
         CancellationToken ct = default)

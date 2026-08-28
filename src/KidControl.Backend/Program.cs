@@ -25,6 +25,16 @@ builder.Services.AddScoped<EnrollmentService>();
 builder.Services.AddScoped<HeartbeatService>();
 builder.Services.AddScoped<DeviceAdminService>();
 builder.Services.AddScoped<CommandService>();
+builder.Services.AddScoped<DbAdminRegistry>();
+builder.Services.AddScoped<FleetBotActions>();
+
+// Fleet operator bot (T11): long-polls Telegram, drives the fleet services. A placeholder
+// token keeps DI valid when unconfigured; the hosted service no-ops until a real token is set.
+var botToken = builder.Configuration["Telegram:BotToken"]
+    ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
+builder.Services.AddSingleton<Telegram.Bot.ITelegramBotClient>(
+    new Telegram.Bot.TelegramBotClient(string.IsNullOrWhiteSpace(botToken) ? "0:DISABLED" : botToken));
+builder.Services.AddHostedService<FleetBotBackgroundService>();
 
 // Per-device bearer auth for agent endpoints; enrollment stays anonymous.
 builder.Services.AddAuthentication(DeviceTokenAuthHandler.SchemeName)
