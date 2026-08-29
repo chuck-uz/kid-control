@@ -135,6 +135,12 @@ public sealed class FleetBotActions(
         return ok ? "🗑️ Устройство отозвано." : "Устройство не найдено.";
     }
 
+    public async Task<string> RenameAsync(Guid deviceId, string name, CancellationToken ct = default)
+    {
+        var ok = await devices.RenameAsync(deviceId, name, "bot", ct);
+        return ok ? $"✏️ Имя изменено: {name.Trim()}" : "Не удалось переименовать (пустое имя или устройство не найдено).";
+    }
+
     // ── Admins ───────────────────────────────────────────────────────────────
     public async Task<string> AdminsTextAsync(CancellationToken ct = default)
     {

@@ -14,3 +14,6 @@ public sealed record BlockRequest(bool Blocked);
 
 /// <summary>Operator request to set (or clear, when null) the night-bypass desired-override.</summary>
 public sealed record NightBypassRequest(DateTimeOffset? Until);
+
+/// <summary>Operator request to give a device a friendly name.</summary>
+public sealed record RenameRequest(string Name);

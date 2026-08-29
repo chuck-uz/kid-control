@@ -24,6 +24,9 @@ public sealed class FleetBotBackgroundService(
     private bool Enabled => !string.IsNullOrWhiteSpace(BotToken);
     private string? BotToken => config["Telegram:BotToken"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
 
+    // chatId -> deviceId awaiting a new name (the operator's next text message is the name).
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRename = new();
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!Enabled)
@@ -102,6 +105,20 @@ public sealed class FleetBotBackgroundService(
         {
             await Send(chatId, $"⛔ Нет доступа. Ваш ID: {chatId}\nПопросите администратора: /addadmin {chatId}", ct);
             return;
+        }
+
+        // Awaiting a new device name? The next non-command message is the name.
+        if (_awaitingRename.TryRemove(chatId, out var renameId))
+        {
+            if (t.StartsWith('/'))
+            {
+                await Send(chatId, "Переименование отменено.", ct);
+            }
+            else
+            {
+                await Send(chatId, await actions.RenameAsync(renameId, t, ct), ct);
+                return;
+            }
         }
 
         if (t.StartsWith("/addadmin", StringComparison.OrdinalIgnoreCase))
@@ -190,6 +207,7 @@ public sealed class FleetBotBackgroundService(
 
         if (kind == "nav") { await ShowDeviceMenuAsync(chatId, deviceId, await actions.StatusTextAsync(deviceId, ct), ct); return; }
         if (kind == "f") { await ShowFolderAsync(chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
+        if (kind == "rn") { _awaitingRename[chatId] = deviceId; await Send(chatId, "✏️ Отправьте новое имя устройства одним сообщением:", ct); return; }
         if (kind == "rv") { await ShowConfirmAsync(chatId, deviceId, "Отозвать устройство?", $"rvok:{deviceId}", ct); return; }
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
         if (kind == "a") { await Send(chatId, await RunActionAsync(actions, deviceId, tail, ct), ct); return; }
@@ -229,7 +247,8 @@ public sealed class FleetBotBackgroundService(
             new[] { B("🎮 Приложение", $"f:{id}:app"), B("💻 Компьютер", $"f:{id}:pc") },
             new[] { B("⚙️ Интервалы", $"f:{id}:rules"), B("🌙 Ночь", $"f:{id}:night") },
             new[] { B("📦 Версия", $"f:{id}:ver"), B("👤 Админы", "adm") },
-            new[] { B("🗑️ Отозвать", $"rv:{id}"), B("⬅️ Устройства", "home") }
+            new[] { B("✏️ Имя", $"rn:{id}"), B("🗑️ Отозвать", $"rv:{id}") },
+            new[] { B("⬅️ Устройства", "home") }
         });
         await bot.SendMessage(chatId, statusText, replyMarkup: kb, cancellationToken: ct);
     }

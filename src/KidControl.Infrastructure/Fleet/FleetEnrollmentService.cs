@@ -64,9 +64,16 @@ public sealed class FleetEnrollmentService(
     /// <summary>Convenience factory reading agent facts from the environment + entry assembly.</summary>
     public static AgentInfo DescribeThisAgent()
     {
-        var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString()
-            ?? typeof(FleetEnrollmentService).Assembly.GetName().Version?.ToString()
-            ?? "0.0.0";
+        // Prefer the MinVer-stamped product version (e.g. "2.1.2"); AssemblyVersion stays at
+        // major.0.0.0 and would misreport in the bot. Fall back to it only if unavailable.
+        var asm = System.Reflection.Assembly.GetEntryAssembly() ?? typeof(FleetEnrollmentService).Assembly;
+        var informational = asm
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+            .FirstOrDefault()?.InformationalVersion;
+        var version = informational is { Length: > 0 }
+            ? informational.Split('+')[0]                       // drop build metadata (+<sha>)
+            : asm.GetName().Version?.ToString() ?? "0.0.0";
         return new AgentInfo(Environment.MachineName, System.Runtime.InteropServices.RuntimeInformation.OSDescription, version);
     }
 }
