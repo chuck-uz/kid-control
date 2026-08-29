@@ -30,8 +30,15 @@ public class FleetCommandApplierT10Tests
     private sealed class FakeUi : KidControl.Infrastructure.Ipc.IUiCommandClient
     {
         public string? ScreenshotPath { get; set; } // null = capture failed (UI not running)
+        public bool PlayResult { get; set; } = true;
+        public string? PlayedPath { get; private set; }
+
         public Task<string?> CaptureScreenshotAsync(CancellationToken ct = default) => Task.FromResult(ScreenshotPath);
-        public Task<bool> PlayAudioAsync(string audioPath, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> PlayAudioAsync(string audioPath, CancellationToken ct = default)
+        {
+            PlayedPath = audioPath;
+            return Task.FromResult(PlayResult);
+        }
     }
 
     private sealed class FakeFleet : IFleetClient
@@ -40,11 +47,20 @@ public class FleetCommandApplierT10Tests
         public byte[]? UploadedImage { get; private set; }
         public bool UploadResult { get; set; } = true;
 
+        public string? DownloadedMediaId { get; private set; }
+        public byte[]? AudioToReturn { get; set; } = new byte[] { 4, 4, 4 };
+
         public Task<bool> UploadMediaAsync(string uploadId, byte[] image, CancellationToken ct = default)
         {
             UploadedId = uploadId;
             UploadedImage = image;
             return Task.FromResult(UploadResult);
+        }
+
+        public Task<byte[]?> DownloadMediaAsync(string mediaId, CancellationToken ct = default)
+        {
+            DownloadedMediaId = mediaId;
+            return Task.FromResult(AudioToReturn);
         }
 
         public Task<EnrollOutcome> EnrollAsync(EnrollRequest request, CancellationToken ct = default)
@@ -143,13 +159,29 @@ public class FleetCommandApplierT10Tests
     }
 
     [Fact]
-    public async Task PlayAudio_is_still_phase_2()
+    public async Task PlayAudio_downloads_by_mediaId_and_plays()
     {
-        var (applier, _, update, _, _, fleet) = Build();
+        var (applier, _, _, _, uiCmd, fleet) = Build();
+        fleet.AudioToReturn = new byte[] { 1, 2, 3, 4 };
+
+        var (ok, _) = await applier.ApplyAsync(Cmd(CommandTypes.PlayAudio, new() { ["mediaId"] = "m-1" }), fleet);
+
+        ok.Should().BeTrue();
+        fleet.DownloadedMediaId.Should().Be("m-1");
+        uiCmd.PlayedPath.Should().NotBeNull();
+        uiCmd.PlayedPath.Should().EndWith(".ogg");
+        File.Exists(uiCmd.PlayedPath!).Should().BeFalse(); // temp cleaned up
+    }
+
+    [Fact]
+    public async Task PlayAudio_without_mediaId_fails_without_downloading()
+    {
+        var (applier, _, _, _, uiCmd, fleet) = Build();
         var (ok, error) = await applier.ApplyAsync(Cmd(CommandTypes.PlayAudio), fleet);
         ok.Should().BeFalse();
-        error.Should().Contain("Phase 2");
-        update.InstallCalls.Should().Be(0);
+        error.Should().Contain("mediaId");
+        fleet.DownloadedMediaId.Should().BeNull();
+        uiCmd.PlayedPath.Should().BeNull();
     }
 
     [Fact]

@@ -19,6 +19,7 @@ public sealed class FleetBotBackgroundService(
     IServiceScopeFactory scopeFactory,
     IConfiguration config,
     ScreenshotRelay screenshots,
+    AudioRelay audio,
     ILogger<FleetBotBackgroundService> logger) : BackgroundService
 {
     private bool Enabled => !string.IsNullOrWhiteSpace(BotToken);
@@ -100,6 +101,10 @@ public sealed class FleetBotBackgroundService(
 
             if (update is { Message: { Text: { } text } message })
                 await HandleMessageAsync(actions, message.Chat.Id, text, ct);
+            else if (update is { Message: { Voice: { } voice } vmsg })
+                await HandleAudioAsync(actions, vmsg.Chat.Id, voice.FileId, ct);
+            else if (update is { Message: { Audio: { } audio } amsg })
+                await HandleAudioAsync(actions, amsg.Chat.Id, audio.FileId, ct);
             else if (update is { CallbackQuery: { } cb })
                 await HandleCallbackAsync(actions, cb, ct);
         }
@@ -196,6 +201,50 @@ public sealed class FleetBotBackgroundService(
 
     private static bool IsKeyboardButton(string t) => t is BtnStatus or BtnTime or BtnApp or BtnPc
         or BtnRules or BtnNight or BtnVer or BtnHistory or BtnName or BtnRevoke or BtnSwitch or BtnAdmins;
+
+    /// <summary>
+    /// A voice note / audio file sent by an operator (G2): download it from Telegram, stash it in
+    /// the relay for the selected device to fetch, and queue a <c>play_audio</c> command. The agent
+    /// pulls it from <c>/agent/audio</c> and plays it in the interactive session.
+    /// </summary>
+    private async Task HandleAudioAsync(FleetBotActions actions, long chatId, string fileId, CancellationToken ct)
+    {
+        if (!await actions.IsAdminAsync(chatId, ct))
+        {
+            await Send(chatId, $"⛔ Нет доступа. Ваш ID: {chatId}", ct);
+            return;
+        }
+
+        var resolved = await ResolveDeviceAsync(actions, chatId, ct);
+        if (resolved is not { } deviceId)
+        {
+            await Send(chatId, "Сначала выберите устройство (🔀 Устройства), потом пришлите голосовое.", ct);
+            return;
+        }
+
+        byte[] bytes;
+        try
+        {
+            using var ms = new MemoryStream();
+            await bot.GetInfoAndDownloadFile(fileId, ms, cancellationToken: ct);
+            bytes = ms.ToArray();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to download audio {FileId}.", fileId);
+            await Send(chatId, "Не удалось скачать аудио из Telegram.", ct);
+            return;
+        }
+
+        if (bytes.Length == 0 || bytes.Length > AudioRelay.MaxBytes)
+        {
+            await Send(chatId, "Аудио пустое или слишком большое.", ct);
+            return;
+        }
+
+        var mediaId = audio.Store(deviceId, bytes);
+        await Send(chatId, await actions.PlayAudioAsync(deviceId, mediaId, ct), ct);
+    }
 
     private async Task ShowDeviceListAsync(FleetBotActions actions, long chatId, CancellationToken ct)
     {

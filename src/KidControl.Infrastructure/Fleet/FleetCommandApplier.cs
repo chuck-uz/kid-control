@@ -44,11 +44,8 @@ public sealed class FleetCommandApplier(
                 case CommandTypes.Screenshot:
                     return await ApplyScreenshotAsync(command, fleet, ct);
 
-                // Audio playback is still Phase 2 (G2): acked so it doesn't redeliver.
                 case CommandTypes.PlayAudio:
-                    logger.LogInformation("Fleet command {Type} ({Id}) is Phase 2 — acked, not executed.",
-                        command.Type, command.Id);
-                    return (false, $"{command.Type} is Phase 2 (media relay)");
+                    return await ApplyPlayAudioAsync(command, fleet, ct);
 
                 default:
                     var sessionCommand = ToSessionCommand(command);
@@ -92,6 +89,37 @@ public sealed class FleetCommandApplier(
         finally
         {
             try { File.Delete(path); } catch (Exception ex) { logger.LogDebug(ex, "Temp screenshot cleanup failed."); }
+        }
+    }
+
+    /// <summary>
+    /// Download an operator-sent audio clip from the backend and play it in the interactive
+    /// session (via the UI). The mediaId ties it to the clip the operator queued.
+    /// </summary>
+    private async Task<(bool Ok, string? Error)> ApplyPlayAudioAsync(CommandDto command, IFleetClient fleet,
+        CancellationToken ct)
+    {
+        var mediaId = command.GetString("mediaId");
+        if (string.IsNullOrWhiteSpace(mediaId))
+            return (false, "play_audio: missing mediaId");
+
+        var bytes = await fleet.DownloadMediaAsync(mediaId, ct).ConfigureAwait(false);
+        if (bytes is null || bytes.Length == 0)
+            return (false, "play_audio: download failed");
+
+        // Telegram voice notes are OGG/Opus; the UI's player handles them.
+        var path = Path.Combine(Path.GetTempPath(), $"kc-audio-{Guid.NewGuid():N}.ogg");
+        try
+        {
+            await File.WriteAllBytesAsync(path, bytes, ct).ConfigureAwait(false);
+            var ok = await uiCommands.PlayAudioAsync(path, ct).ConfigureAwait(false);
+            logger.LogInformation("Fleet play_audio ({Id}): {Bytes} bytes, play {Result}.",
+                command.Id, bytes.Length, ok ? "ok" : "failed");
+            return ok ? (true, null) : (false, "play_audio: UI playback failed (UI not running?)");
+        }
+        finally
+        {
+            try { File.Delete(path); } catch (Exception ex) { logger.LogDebug(ex, "Temp audio cleanup failed."); }
         }
     }
 

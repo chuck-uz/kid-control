@@ -37,6 +37,8 @@ builder.Services.AddSingleton<Telegram.Bot.ITelegramBotClient>(
 // Screenshot relay (G1): pairs an operator's request with the agent's later upload. Singleton
 // so the bot (which registers requests) and the /agent/media endpoint (which delivers) share it.
 builder.Services.AddSingleton<ScreenshotRelay>();
+// G2: holds an operator's audio clip until the target agent fetches it from /agent/audio.
+builder.Services.AddSingleton<AudioRelay>();
 // H2: in-memory dedup for night-usage-attempt alerts (survives per-request scope).
 builder.Services.AddSingleton<NightAttemptTracker>();
 builder.Services.AddHostedService<FleetBotBackgroundService>();
@@ -169,6 +171,24 @@ app.MapPost("/agent/media", async (HttpRequest http, System.Security.Claims.Clai
     await http.Body.CopyToAsync(ms, ct);
     var ok = await relay.DeliverAsync(uploadId, deviceId.Value, ms.ToArray(), ct);
     return ok ? Results.Ok() : Results.NotFound(new { error = "no matching pending screenshot" });
+}).RequireAuthorization();
+
+// ── Agent: fetch an operator-sent audio clip to play (G2). One-shot, device-scoped. ─────────────
+app.MapGet("/agent/audio", (HttpRequest http, System.Security.Claims.ClaimsPrincipal user,
+    AudioRelay relay) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    var mediaId = http.Query["mediaId"].ToString();
+    if (string.IsNullOrWhiteSpace(mediaId))
+        return Results.BadRequest(new { error = "mediaId is required" });
+
+    var bytes = relay.Take(mediaId, deviceId.Value);
+    return bytes is null
+        ? Results.NotFound(new { error = "no matching pending audio" })
+        : Results.File(bytes, "audio/ogg");
 }).RequireAuthorization();
 
 // ── Operator surface. Temporary (X-Admin-Key), until the bot (T11) owns it. ───────────────
