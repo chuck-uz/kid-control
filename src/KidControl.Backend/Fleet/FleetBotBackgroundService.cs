@@ -26,6 +26,7 @@ public sealed class FleetBotBackgroundService(
     // Per-chat state: the currently selected device, and (transiently) a device awaiting a rename.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _selected = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRename = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingTarget = new();
 
     // ── Bottom (persistent) keyboard — the control folders ────────────────────
     private const string BtnStatus = "📊 Статус", BtnTime = "➕ Время", BtnApp = "🎮 Приложение",
@@ -133,6 +134,17 @@ public sealed class FleetBotBackgroundService(
                 return;
             }
             await Send(chatId, "Переименование отменено.", ct);
+        }
+
+        // Awaiting a target version tag? The next non-command message is the tag (or "latest").
+        if (_awaitingTarget.TryRemove(chatId, out var targetId))
+        {
+            if (!t.StartsWith('/') && !IsKeyboardButton(t))
+            {
+                await Send(chatId, await actions.SetTargetVersionAsync(targetId, t, ct), ct);
+                return;
+            }
+            await Send(chatId, "Выбор версии отменён.", ct);
         }
 
         // ── Global commands (not device-scoped) ──
@@ -278,6 +290,7 @@ public sealed class FleetBotBackgroundService(
         if (kind == "nav") { await SelectDeviceAsync(actions, chatId, deviceId, ct); return; }
         if (kind == "f") { await OpenFolderAsync(actions, chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
+        if (kind == "vtag") { _awaitingTarget[chatId] = deviceId; await Send(chatId, "✏️ Отправьте тег версии одним сообщением (например 2.2.0) или latest:", ct); return; }
         if (kind == "a") { await Send(chatId, await RunActionAsync(actions, deviceId, tail, ct), ct); return; }
     }
 
@@ -299,6 +312,7 @@ public sealed class FleetBotBackgroundService(
             "night" => await a.SetNightEnabledAsync(id, tail.ElementAtOrDefault(1) == "on", ct),
             "nightwin" => await a.SetNightWindowAsync(id, ParseHm(tail, 1), ParseHm(tail, 2), ct),
             "bypass" => await a.NightBypassAsync(id, DateTimeOffset.UtcNow.AddHours(10), ct),
+            "settarget" => await a.SetTargetVersionAsync(id, tail.ElementAtOrDefault(1) ?? "latest", ct),
             "updatenow" => await a.UpdateNowAsync(id, null, ct),
             "media" => "📷 Медиа-команды (скриншот/аудио) — Phase 2, появятся позже.",
             _ => "Неизвестное действие."
@@ -346,8 +360,19 @@ public sealed class FleetBotBackgroundService(
                                  new[] { B("🌙 Снять ночь на сегодня", $"a:{id}:bypass") } });
                 break;
             case "ver":
-                title = "Версия / обновление:";
-                kb = new(new[] { new[] { B("⬇️ Обновить сейчас", $"a:{id}:updatenow") } });
+                title = await actions.VersionTextAsync(id, ct);
+                var verRows = new List<InlineKeyboardButton[]>
+                {
+                    new[] { B("🆕 Следить за latest", $"a:{id}:settarget:latest") },
+                };
+                // Pin to exactly the version the device runs now, if we know it (stops it
+                // auto-moving past this build).
+                var current = (await actions.ListDevicesAsync(ct)).FirstOrDefault(x => x.Id == id)?.AgentVersion;
+                if (!string.IsNullOrWhiteSpace(current))
+                    verRows.Add(new[] { B($"📌 Закрепить {current}", $"a:{id}:settarget:{current}") });
+                verRows.Add(new[] { B("✏️ Задать версию", $"vtag:{id}") });
+                verRows.Add(new[] { B("⬇️ Обновить сейчас", $"a:{id}:updatenow") });
+                kb = new(verRows.ToArray());
                 break;
             default:
                 await SelectDeviceAsync(actions, chatId, id, ct);

@@ -118,6 +118,20 @@ public sealed class FleetBotActions(
     public Task<string> RestartAsync(Guid deviceId, CancellationToken ct = default)
         => EnqueueAsync(deviceId, CommandTypes.Restart, null, "🔄 Перезагрузка поставлена в очередь.", ct);
 
+    public async Task<string> VersionTextAsync(Guid deviceId, CancellationToken ct = default)
+    {
+        var d = await devices.GetDeviceAsync(deviceId, ct);
+        if (d is null)
+            return "Устройство не найдено.";
+        var target = string.IsNullOrWhiteSpace(d.TargetVersion) ? "latest" : d.TargetVersion!;
+        var tracking = string.Equals(target, "latest", StringComparison.OrdinalIgnoreCase)
+            ? "🆕 следит за latest"
+            : $"📌 закреплена {target}";
+        return $"📦 {d.Name}\n" +
+               $"Текущая версия: {d.AgentVersion ?? "—"}\n" +
+               $"Целевая: {tracking}";
+    }
+
     public Task<string> UpdateNowAsync(Guid deviceId, string? tag, CancellationToken ct = default)
         => EnqueueAsync(deviceId, CommandTypes.UpdateNow,
             string.IsNullOrWhiteSpace(tag) ? null : new() { ["tag"] = tag },
