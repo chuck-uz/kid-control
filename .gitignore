@@ -36,3 +36,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Graphify knowledge graph output (regenerate with `graphify update .`)
+graphify-out/
