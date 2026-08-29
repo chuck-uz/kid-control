@@ -119,6 +119,23 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task Version_text_defaults_to_latest_then_reflects_a_pin()
+    {
+        await using var db = NewDb();
+        var (actions, _, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        // Fresh policy tracks latest.
+        (await actions.VersionTextAsync(id)).Should().Contain("latest");
+
+        // Pinning a tag surfaces in both the setter reply and the version screen.
+        (await actions.SetTargetVersionAsync(id, "2.2.0")).Should().Contain("2.2.0");
+        var text = await actions.VersionTextAsync(id);
+        text.Should().Contain("закреплена 2.2.0");
+        text.Should().NotContain("следит за latest");
+    }
+
+    [Fact]
     public async Task AddTime_enqueues_a_command()
     {
         await using var db = NewDb();

@@ -17,7 +17,7 @@ public sealed record PolicyPatch(
 public sealed record DeviceSummary(
     Guid Id, string Name, string? GroupLabel, DateTimeOffset? LastSeenAt, string? AgentVersion,
     int PolicyVersion, string? Status, TimeSpan? TimeRemaining, bool IsUnlimited = false, bool IsNight = false,
-    bool Paused = false, bool ForceBlocked = false);
+    bool Paused = false, bool ForceBlocked = false, string? TargetVersion = null);
 
 /// <summary>One audit line for the bot's device history.</summary>
 public sealed record AuditEntry(string Action, string Actor, DateTimeOffset At);
@@ -37,7 +37,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
                 d.Id, d.Name, d.GroupLabel, d.LastSeenAt, d.AgentVersion,
                 d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining,
                 d.Status != null && d.Status.IsUnlimited, d.Status != null && d.Status.IsNight,
-                d.Desired != null && d.Desired.Paused, d.Desired != null && d.Desired.ForceBlocked))
+                d.Desired != null && d.Desired.Paused, d.Desired != null && d.Desired.ForceBlocked,
+                d.Policy!.TargetVersion))
             .ToListAsync(ct);
 
     /// <summary>Recent audit lines for a device, newest first.</summary>
@@ -57,7 +58,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
                 d.Id, d.Name, d.GroupLabel, d.LastSeenAt, d.AgentVersion,
                 d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining,
                 d.Status != null && d.Status.IsUnlimited, d.Status != null && d.Status.IsNight,
-                d.Desired != null && d.Desired.Paused, d.Desired != null && d.Desired.ForceBlocked))
+                d.Desired != null && d.Desired.Paused, d.Desired != null && d.Desired.ForceBlocked,
+                d.Policy!.TargetVersion))
             .FirstOrDefaultAsync(ct);
 
     /// <summary>Give a device a friendly name (max 200 chars). Returns false if unknown/blank.</summary>
