@@ -51,6 +51,10 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// Serve the operator web dashboard (I1) and any other static assets from wwwroot
+// (dashboard at /dashboard.html; a clean /dashboard alias is mapped below).
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -95,6 +99,9 @@ app.MapGet("/health/db", async (FleetDbContext db, CancellationToken ct) =>
 });
 
 app.MapGet("/", () => Results.Ok(new { service = "KidControl.Backend", version }));
+
+// Clean alias for the operator web dashboard (the actual page is wwwroot/dashboard.html).
+app.MapGet("/dashboard", () => Results.Redirect("/dashboard.html"));
 
 // ── Agent: enrollment (anonymous — the agent has no token yet) ──────────────────────────
 app.MapPost("/agent/enroll", async (EnrollRequest req, EnrollmentService svc, CancellationToken ct) =>
@@ -207,6 +214,14 @@ app.MapGet("/admin/devices", async (HttpRequest http, IConfiguration cfg, Device
 {
     if (AdminGuard(http, cfg) is { } deny) return deny;
     return Results.Ok(await svc.ListDevicesAsync(ct));
+});
+
+// Recent audit history for one device (for the dashboard's detail view).
+app.MapGet("/admin/devices/{id:guid}/history", async (Guid id, int? limit, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    return Results.Ok(await svc.GetHistoryAsync(id, Math.Clamp(limit ?? 25, 1, 100), ct));
 });
 
 // Edit a device policy (bumps the version → propagates on the device's next heartbeat).
