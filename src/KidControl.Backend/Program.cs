@@ -35,6 +35,7 @@ var botToken = builder.Configuration["Telegram:BotToken"]
 builder.Services.AddSingleton<Telegram.Bot.ITelegramBotClient>(
     new Telegram.Bot.TelegramBotClient(string.IsNullOrWhiteSpace(botToken) ? "0:DISABLED" : botToken));
 builder.Services.AddHostedService<FleetBotBackgroundService>();
+builder.Services.AddHostedService<AlertBackgroundService>();
 
 // Per-device bearer auth for agent endpoints; enrollment stays anonymous.
 builder.Services.AddAuthentication(DeviceTokenAuthHandler.SchemeName)
