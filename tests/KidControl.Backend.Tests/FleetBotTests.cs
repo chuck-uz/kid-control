@@ -98,6 +98,27 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task Overview_flags_paused_and_blocked_devices()
+    {
+        await using var db = NewDb();
+        var (actions, _, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        static string DeviceLine(string overview) =>
+            overview.Split('\n').First(l => l.Contains("KID-PC", StringComparison.Ordinal));
+
+        // Nothing overridden yet → the device line carries no flag emojis (the legend line does).
+        DeviceLine(await actions.OverviewTextAsync()).Should().NotContain("🚫").And.NotContain("⏸️");
+
+        await actions.PauseAsync(id, true);
+        await actions.BlockAsync(id, true);
+
+        var line = DeviceLine(await actions.OverviewTextAsync());
+        line.Should().Contain("🚫"); // force-blocked
+        line.Should().Contain("⏸️"); // paused
+    }
+
+    [Fact]
     public async Task AddTime_enqueues_a_command()
     {
         await using var db = NewDb();

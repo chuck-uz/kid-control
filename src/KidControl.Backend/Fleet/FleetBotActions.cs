@@ -46,9 +46,12 @@ public sealed class FleetBotActions(
             ? "Режим: ♾️ без ограничений (интервалы отключены)"
             : $"Осталось: {(d.TimeRemaining is { } tr ? $"{tr:hh\\:mm\\:ss}" : "—")}";
         var night = d.IsNight ? "\n🌙 Сейчас ночной режим" : "";
+        var overrides = string.Concat(
+            d.ForceBlocked ? "\n🚫 Принудительная блокировка" : "",
+            d.Paused ? "\n⏸️ Контроль на паузе" : "");
         return $"📊 {d.Name}\n" +
                $"Статус: {d.Status ?? "нет данных"}\n" +
-               $"{timeLine}{night}\n" +
+               $"{timeLine}{night}{overrides}\n" +
                $"Версия агента: {d.AgentVersion ?? "—"}\n" +
                $"На связи: {seen}";
     }
@@ -91,9 +94,14 @@ public sealed class FleetBotActions(
         {
             var online = d.LastSeenAt is { } ls && (DateTimeOffset.UtcNow - ls) < TimeSpan.FromMinutes(3) ? "🟢" : "⚪";
             var time = d.IsUnlimited ? "♾️ без ограничений" : $"{d.TimeRemaining:hh\\:mm\\:ss}";
-            return $"{online} {d.Name} — {d.Status ?? "?"} ({time})";
+            var flags = string.Concat(
+                d.ForceBlocked ? " 🚫" : "",
+                d.Paused ? " ⏸️" : "",
+                d.IsNight ? " 🌙" : "");
+            return $"{online} {d.Name} — {d.Status ?? "?"} ({time}){flags}";
         });
-        return "Все устройства:\n" + string.Join("\n", lines);
+        return "Все устройства:\n" + string.Join("\n", lines) +
+               "\n\n🚫 блок · ⏸️ пауза · 🌙 ночь · ⚪ оффлайн";
     }
 
     // ── Time / commands ──────────────────────────────────────────────────────
