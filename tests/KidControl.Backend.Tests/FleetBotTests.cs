@@ -144,6 +144,36 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task History_lists_recent_actions_readably()
+    {
+        await using var db = NewDb();
+        var (actions, _, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        await actions.SetRuleAsync(id, 60, 15);   // -> policy.edit
+        await actions.PauseAsync(id, true);        // -> desired.pause
+        await actions.RenameAsync(id, "ПК Ромы");  // -> device.rename
+
+        var text = await actions.HistoryTextAsync(id);
+        text.Should().Contain("История");
+        text.Should().Contain("переименование");
+        text.Should().Contain("пауза");
+        text.Should().Contain("правка политики");
+        text.Should().Contain("привязка устройства");
+    }
+
+    [Fact]
+    public async Task History_is_empty_for_a_device_with_no_actions()
+    {
+        await using var db = NewDb();
+        var (actions, ctx, _) = Build(db);
+        var id = Guid.NewGuid();
+        ctx.Devices.Add(new Device { Id = id, Name = "X", TokenHash = "h", EnrolledAt = T0 });
+        await ctx.SaveChangesAsync();
+        (await actions.HistoryTextAsync(id)).Should().Contain("пуста");
+    }
+
+    [Fact]
     public async Task New_enroll_code_is_issued()
     {
         await using var db = NewDb();

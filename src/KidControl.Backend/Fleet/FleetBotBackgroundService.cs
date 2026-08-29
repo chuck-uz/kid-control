@@ -213,6 +213,7 @@ public sealed class FleetBotBackgroundService(
 
         if (kind == "nav") { await ShowDeviceMenuAsync(chatId, deviceId, await actions.StatusTextAsync(deviceId, ct), ct); return; }
         if (kind == "f") { await ShowFolderAsync(chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
+        if (kind == "hist") { await Send(chatId, await actions.HistoryTextAsync(deviceId, ct), ct); return; }
         if (kind == "rn") { _awaitingRename[chatId] = deviceId; await Send(chatId, "✏️ Отправьте новое имя устройства одним сообщением:", ct); return; }
         if (kind == "rv") { await ShowConfirmAsync(chatId, deviceId, "Отозвать устройство?", $"rvok:{deviceId}", ct); return; }
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
@@ -252,9 +253,9 @@ public sealed class FleetBotBackgroundService(
             new[] { B("📊 Статус", $"f:{id}:status"), B("➕ Время", $"f:{id}:time") },
             new[] { B("🎮 Приложение", $"f:{id}:app"), B("💻 Компьютер", $"f:{id}:pc") },
             new[] { B("⚙️ Интервалы", $"f:{id}:rules"), B("🌙 Ночь", $"f:{id}:night") },
-            new[] { B("📦 Версия", $"f:{id}:ver"), B("👤 Админы", "adm") },
-            new[] { B("✏️ Имя", $"rn:{id}"), B("🗑️ Отозвать", $"rv:{id}") },
-            new[] { B("⬅️ Устройства", "home") }
+            new[] { B("📦 Версия", $"f:{id}:ver"), B("🧾 История", $"hist:{id}") },
+            new[] { B("✏️ Имя", $"rn:{id}"), B("👤 Админы", "adm") },
+            new[] { B("🗑️ Отозвать", $"rv:{id}"), B("⬅️ Устройства", "home") }
         });
         await bot.SendMessage(chatId, statusText, replyMarkup: kb, cancellationToken: ct);
     }
