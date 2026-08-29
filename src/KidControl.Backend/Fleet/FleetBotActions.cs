@@ -16,6 +16,21 @@ public sealed class FleetBotActions(
 {
     private static readonly TimeSpan CommandTtl = TimeSpan.FromMinutes(5);
 
+    // Show times in Tashkent (UTC+5, no DST). Resolved from tzdata if present, else a fixed +5
+    // custom zone — so it's correct even in a minimal container without the tz database.
+    private static readonly TimeZoneInfo Tz = ResolveTashkent();
+
+    private static TimeZoneInfo ResolveTashkent()
+    {
+        foreach (var id in new[] { "Asia/Tashkent", "Uzbekistan Standard Time" })
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById(id); } catch { /* try next */ }
+        }
+        return TimeZoneInfo.CreateCustomTimeZone("UZT", TimeSpan.FromHours(5), "UZT (UTC+5)", "UZT");
+    }
+
+    private static DateTimeOffset Local(DateTimeOffset utc) => TimeZoneInfo.ConvertTime(utc, Tz);
+
     // ── Devices ──────────────────────────────────────────────────────────────
     public Task<IReadOnlyList<DeviceSummary>> ListDevicesAsync(CancellationToken ct = default)
         => devices.ListDevicesAsync(ct);
@@ -43,7 +58,7 @@ public sealed class FleetBotActions(
         var entries = await devices.GetHistoryAsync(deviceId, 15, ct);
         if (entries.Count == 0)
             return "🧾 История пуста.";
-        var lines = entries.Select(e => $"{e.At.ToLocalTime():dd.MM HH:mm} — {ActionLabel(e.Action)} ({e.Actor})");
+        var lines = entries.Select(e => $"{Local(e.At):dd.MM HH:mm} — {ActionLabel(e.Action)} ({e.Actor})");
         return "🧾 История (последние действия):\n" + string.Join("\n", lines);
     }
 
@@ -118,7 +133,7 @@ public sealed class FleetBotActions(
 
     public Task<string> NightBypassAsync(Guid deviceId, DateTimeOffset? until, CancellationToken ct = default)
         => DesiredAsync(devices.SetNightBypassAsync(deviceId, until, ct: ct),
-            until is null ? "🌙 Ночной обход сброшен." : $"🌙 Ночь снята до {until:HH:mm} UTC.");
+            until is null ? "🌙 Ночной обход сброшен." : $"🌙 Ночь снята до {Local(until.Value):HH:mm}.");
 
     // ── Policy edits ─────────────────────────────────────────────────────────
     public Task<string> SetRuleAsync(Guid deviceId, int play, int rest, CancellationToken ct = default)
@@ -158,7 +173,7 @@ public sealed class FleetBotActions(
     {
         var code = await enrollment.CreateCodeAsync(actor: "bot", ct: ct);
         return $"🔑 Код привязки: <b>{code.Code}</b>\n" +
-               $"Действует до {code.ExpiresAt:HH:mm}. Введите его на устройстве (Fleet:EnrollCode).";
+               $"Действует до {Local(code.ExpiresAt):HH:mm}. Введите его на устройстве (Fleet:EnrollCode).";
     }
 
     public async Task<string> RevokeAsync(Guid deviceId, CancellationToken ct = default)
