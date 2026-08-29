@@ -80,6 +80,12 @@ public class FleetReconcilerTests
             return Task.FromResult(true);
         }
 
+        public Task<byte[]?> DownloadMediaAsync(string mediaId, CancellationToken ct = default)
+        {
+            Calls.Add("audio");
+            return Task.FromResult<byte[]?>(null);
+        }
+
         public void UseToken(string token) => Token = token;
     }
 

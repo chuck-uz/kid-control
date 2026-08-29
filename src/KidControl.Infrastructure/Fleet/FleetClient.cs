@@ -24,6 +24,9 @@ public interface IFleetClient
     /// <summary>Upload a requested screenshot (G1). Returns false on any failure — the operator retries.</summary>
     Task<bool> UploadMediaAsync(string uploadId, byte[] image, CancellationToken ct = default);
 
+    /// <summary>Download an operator-sent audio clip to play (G2). Null on any failure.</summary>
+    Task<byte[]?> DownloadMediaAsync(string mediaId, CancellationToken ct = default);
+
     void UseToken(string token);
 }
 
@@ -152,6 +155,27 @@ public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger) : 
         {
             logger.LogWarning(ex, "Media upload could not reach the backend.");
             return false;
+        }
+    }
+
+    public async Task<byte[]?> DownloadMediaAsync(string mediaId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await http.GetAsync(
+                $"agent/audio?mediaId={Uri.EscapeDataString(mediaId)}", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Audio download failed: {Status}", (int)resp.StatusCode);
+                return null;
+            }
+
+            return await resp.Content.ReadAsByteArrayAsync(ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Audio download could not reach the backend.");
+            return null;
         }
     }
 

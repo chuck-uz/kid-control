@@ -136,6 +136,10 @@ public sealed class FleetBotActions(
         => EnqueueAsync(deviceId, CommandTypes.Screenshot, new() { ["uploadId"] = uploadId },
             "📷 Запрос отправлен — скриншот придёт, когда устройство онлайн (в течение TTL).", ct);
 
+    public Task<string> PlayAudioAsync(Guid deviceId, string mediaId, CancellationToken ct = default)
+        => EnqueueAsync(deviceId, CommandTypes.PlayAudio, new() { ["mediaId"] = mediaId },
+            "🔊 Аудио отправлено — проиграется на ПК, когда устройство онлайн (в течение TTL).", ct);
+
     public Task<string> UpdateNowAsync(Guid deviceId, string? tag, CancellationToken ct = default)
         => EnqueueAsync(deviceId, CommandTypes.UpdateNow,
             string.IsNullOrWhiteSpace(tag) ? null : new() { ["tag"] = tag },
