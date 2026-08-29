@@ -63,17 +63,49 @@ public sealed class FleetEnrollmentService(
 
     /// <summary>Convenience factory reading agent facts from the environment + entry assembly.</summary>
     public static AgentInfo DescribeThisAgent()
+        => new(Environment.MachineName,
+               System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+               ResolveAgentVersion());
+
+    /// <summary>
+    /// The MinVer-stamped version (e.g. "2.2.0"). In a single-file host the assembly's
+    /// InformationalVersion attribute reads empty and AssemblyVersion stays at major.0.0.0
+    /// (2.0.0.0) — which is exactly what the bot used to show — so read the executable's
+    /// ProductVersion first (MinVer stamps it, and it survives single-file, as the updater
+    /// relies on), then fall back to the attribute and finally AssemblyVersion.
+    /// </summary>
+    internal static string ResolveAgentVersion()
     {
-        // Prefer the MinVer-stamped product version (e.g. "2.1.2"); AssemblyVersion stays at
-        // major.0.0.0 and would misreport in the bot. Fall back to it only if unavailable.
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path))
+            {
+                var product = System.Diagnostics.FileVersionInfo.GetVersionInfo(path).ProductVersion;
+                var clean = CleanVersion(product);
+                if (clean is not null)
+                    return clean;
+            }
+        }
+        catch
+        {
+            // Fall through to the assembly-based resolution below.
+        }
+
         var asm = System.Reflection.Assembly.GetEntryAssembly() ?? typeof(FleetEnrollmentService).Assembly;
         var informational = asm
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
             .FirstOrDefault()?.InformationalVersion;
-        var version = informational is { Length: > 0 }
-            ? informational.Split('+')[0]                       // drop build metadata (+<sha>)
-            : asm.GetName().Version?.ToString() ?? "0.0.0";
-        return new AgentInfo(Environment.MachineName, System.Runtime.InteropServices.RuntimeInformation.OSDescription, version);
+        return CleanVersion(informational) ?? asm.GetName().Version?.ToString() ?? "0.0.0";
+    }
+
+    /// <summary>Trim build metadata (the "+&lt;sha&gt;") and reject an empty/0.0.0 placeholder.</summary>
+    private static string? CleanVersion(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+        var v = raw.Split('+')[0].Trim();
+        return v.Length == 0 || v is "0.0.0" or "0.0.0.0" ? null : v;
     }
 }
