@@ -36,6 +36,35 @@ public sealed class FleetBotActions(
                $"На связи: {seen}";
     }
 
+    public async Task<string> HistoryTextAsync(Guid deviceId, CancellationToken ct = default)
+    {
+        var entries = await devices.GetHistoryAsync(deviceId, 15, ct);
+        if (entries.Count == 0)
+            return "🧾 История пуста.";
+        var lines = entries.Select(e => $"{e.At.ToLocalTime():dd.MM HH:mm} — {ActionLabel(e.Action)} ({e.Actor})");
+        return "🧾 История (последние действия):\n" + string.Join("\n", lines);
+    }
+
+    private static string ActionLabel(string action) => action switch
+    {
+        "policy.edit" => "правка политики",
+        "desired.pause" => "пауза",
+        "desired.resume" => "снятие паузы",
+        "desired.block" => "блокировка",
+        "desired.unblock" => "разблокировка",
+        "desired.night_bypass" => "ночной обход",
+        "device.enroll" => "привязка устройства",
+        "device.revoke" => "отзыв устройства",
+        "device.rename" => "переименование",
+        "command.add_time" => "+время",
+        "command.reset_timer" => "сброс таймера",
+        "command.shutdown" => "выключение",
+        "command.restart" => "перезагрузка",
+        "command.update_now" => "обновление",
+        _ when action.StartsWith("command.") => "команда " + action["command.".Length..],
+        _ => action
+    };
+
     public async Task<string> OverviewTextAsync(CancellationToken ct = default)
     {
         var list = await devices.ListDevicesAsync(ct);

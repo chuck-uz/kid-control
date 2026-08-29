@@ -18,6 +18,9 @@ public sealed record DeviceSummary(
     Guid Id, string Name, string? GroupLabel, DateTimeOffset? LastSeenAt, string? AgentVersion,
     int PolicyVersion, string? Status, TimeSpan? TimeRemaining);
 
+/// <summary>One audit line for the bot's device history.</summary>
+public sealed record AuditEntry(string Action, string Actor, DateTimeOffset At);
+
 /// <summary>
 /// Operator-side reads/edits over devices and their policy. Backs the temporary admin API
 /// today; the Telegram bot (T11) will call the same methods. A policy edit bumps the
@@ -32,6 +35,16 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
             .Select(d => new DeviceSummary(
                 d.Id, d.Name, d.GroupLabel, d.LastSeenAt, d.AgentVersion,
                 d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining))
+            .ToListAsync(ct);
+
+    /// <summary>Recent audit lines for a device, newest first.</summary>
+    public async Task<IReadOnlyList<AuditEntry>> GetHistoryAsync(Guid deviceId, int limit = 15,
+        CancellationToken ct = default)
+        => await db.Audits.AsNoTracking()
+            .Where(a => a.DeviceId == deviceId)
+            .OrderByDescending(a => a.At)
+            .Take(limit)
+            .Select(a => new AuditEntry(a.Action, a.Actor, a.At))
             .ToListAsync(ct);
 
     public async Task<DeviceSummary?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default)
