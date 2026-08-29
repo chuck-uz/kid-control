@@ -91,9 +91,15 @@ RCE. The chain is:
 2. **Signature gate.** With `RequireSignature = true` (the default), a downloaded
    installer must carry a valid Authenticode signature whose certificate thumbprint
    matches `TrustedThumbprint` before it is executed.
-3. **Apply headlessly.** The verified installer is invoked with `/update`, which runs
-   `InstallOrchestrator.Update` — binaries only, config and state preserved — with no
-   Form and no window.
+3. **Apply detached, crash-safe.** The verified payload is handed to a one-shot **SYSTEM
+   scheduled task** (`ScheduledTaskUpdateLauncher` → `KidControl.Installer.exe
+   /apply-update`), so the swap runs *outside* the service's process tree. It is the fix
+   for the v2.1 brick, where the installer ran as a child of the very service it stopped —
+   and `sc delete`-d — so a mid-swap kill left no service at all. `InstallOrchestrator.Update`
+   now: stop (**never** delete) → back up current binaries → copy → start → health-check
+   (`ServiceInstaller.WaitUntilHealthy`: Running + an 8 s stability window) → **roll back**
+   to the backup on any failure. SCM failure-recovery is the final backstop. With this in
+   place `UpdateConfig.AutoInstall` defaults back **on**.
 
 The release workflow signs the executables and publishes `SHA256SUMS.txt`; the runtime
 enforces the signature. Both halves are required — see [SECURITY.md](SECURITY.md).
