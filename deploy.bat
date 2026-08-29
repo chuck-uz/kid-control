@@ -7,8 +7,10 @@ rem  extracts it, and runs the installer. No .NET SDK, no build, no git -> the
 rem  version shown in the bot is the real release version (e.g. 2.0.4), not a
 rem  from-source "0.0.1-source".
 rem
-rem  Flow: self-elevate -> ensure .NET 8 Desktop Runtime -> download release zip ->
-rem        extract -> run installer (GUI wizard, or silent if a token is set).
+rem  Flow: self-elevate -> (optional) FULL removal of any previous install ->
+rem        ensure .NET 8 Desktop Runtime -> download release zip -> extract ->
+rem        install (silent if a token is set, else GUI) -> write managed Fleet config
+rem        (if KC_BACKEND_URL set) -> restart + confirm the service is Running.
 rem  Debug log: %TEMP%\kidcontrol-deploy.log
 rem ============================================================================
 
@@ -31,9 +33,19 @@ rem  Install mode:
 rem    - Leave KC_BOT_TOKEN empty  -> the graphical installer wizard opens.
 rem    - Fill KC_BOT_TOKEN + KC_ADMIN_IDS -> fully silent, unattended install.
 set "KC_BOT_TOKEN="
-set "KC_ADMIN_IDS="
+set "KC_ADMIN_IDS=65310731"
 set "KC_NIGHT_START=22:00:00"
 set "KC_NIGHT_END=07:00:00"
+
+rem  Clean reinstall: 1 = FULLY remove any existing install (service, files, data)
+rem  BEFORE installing the new version. 0 = plain over-install (keeps config/timer).
+set "KC_CLEAN=1"
+
+rem  Managed mode (control the PC from the backend). Set both to enroll on install:
+rem    KC_BACKEND_URL = backend base URL (blank = classic standalone with the built-in bot)
+rem    KC_ENROLL_CODE = one-time code from the bot's /enroll
+set "KC_BACKEND_URL=https://kidcontrol.oresh.in"
+set "KC_ENROLL_CODE="
 
 rem  Self-update settings written after install:
 rem    KC_REQUIRE_SIGNATURE = false to accept unsigned releases (public-repo auto-update)
@@ -119,6 +131,51 @@ function Set-OrAdd($obj, $name, $value) {
     else { $obj | Add-Member -NotePropertyName $name -NotePropertyValue $value }
 }
 
+# Full removal of any existing install (mirrors uninstall.bat): scheduled task, service
+# (graceful stop -> disable -> delete), UI process, hardening reg key, install + data dirs.
+# Safe on a clean machine (every step tolerates 'not present').
+function Remove-KidControl {
+    $svc  = 'KidControlService'
+    $task = 'KidControl.UiHost.Launch'
+    $ui   = 'KidControl.UiHost.exe'
+    $inst = Join-Path $env:ProgramFiles 'KidControl'
+    $data = Join-Path $env:ProgramData  'KidControl'
+    $regKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KidControl'
+
+    Info 'Clean: removing any previous installation'
+    schtasks /Delete /TN $task /F  2>$null | Out-Null
+
+    $existing = Get-Service -Name $svc -ErrorAction SilentlyContinue
+    if ($existing) {
+        cmd /c "sc stop $svc"    2>$null | Out-Null
+        cmd /c "sc config $svc start= disabled" 2>$null | Out-Null
+        for ($i = 0; $i -lt 15; $i++) {
+            $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
+            if (-not $s -or $s.Status -eq 'Stopped') { break }
+            Start-Sleep -Seconds 2
+        }
+        taskkill /F /IM $ui /T   2>$null | Out-Null
+        cmd /c "sc delete $svc"  2>$null | Out-Null
+        Ok '  service removed'
+    } else {
+        taskkill /F /IM $ui /T   2>$null | Out-Null
+        Info '  no existing service (ok)'
+    }
+
+    reg delete $regKey.Replace('HKLM:\','HKLM\') /f 2>$null | Out-Null
+
+    foreach ($dir in @($inst, $data)) {
+        if (Test-Path $dir) {
+            takeown /F $dir /R /D Y                         2>$null | Out-Null
+            icacls  $dir /reset /T /C /Q                    2>$null | Out-Null
+            icacls  $dir /grant '*S-1-5-32-544:(OI)(CI)F' /T /C /Q 2>$null | Out-Null
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $dir) { Write-Host "  WARNING: could not fully remove $dir (reboot + retry)" -ForegroundColor Yellow }
+            else { Ok "  removed $dir" }
+        }
+    }
+}
+
 $owner = $env:KC_OWNER
 $repo  = $env:KC_REPO
 $tag   = $env:KC_TAG
@@ -128,6 +185,9 @@ if (-not [string]::IsNullOrWhiteSpace($token)) { $ua['Authorization'] = "Bearer 
 
 $work    = Join-Path $env:TEMP 'kidcontrol-deploy'
 $extract = Join-Path $work 'release'
+
+# ---- 0. Optional clean removal of a previous install ---------------------
+if ($env:KC_CLEAN -match '^(1|true|yes)$') { Remove-KidControl }
 
 # ---- 1. Ensure a machine-wide .NET 8 Desktop Runtime ---------------------
 Info 'Checking for a machine-wide .NET 8 Desktop Runtime'
@@ -202,19 +262,27 @@ Ok "Installer: $installerPath"
 
 # ---- 4. Install ----------------------------------------------------------
 $botToken = $env:KC_BOT_TOKEN
+$adminIds = $env:KC_ADMIN_IDS
+# Managed mode disables the built-in bot, but the installer still requires a token/admin.
+# Supply harmless placeholders so a managed install needs only KC_GH_TOKEN + the enroll code.
+if ([string]::IsNullOrWhiteSpace($botToken) -and -not [string]::IsNullOrWhiteSpace($env:KC_BACKEND_URL)) {
+    $botToken = '0:managed'
+    if ([string]::IsNullOrWhiteSpace($adminIds)) { $adminIds = '0' }
+    Info 'Managed install: using placeholder bot token (built-in bot stays off)'
+}
 if ([string]::IsNullOrWhiteSpace($botToken)) {
     Info 'Launching the graphical installer wizard'
     $p = Start-Process -FilePath $installerPath -PassThru -Wait
     if ($p.ExitCode -ne 0) { throw "Installer exited with code $($p.ExitCode)." }
 } else {
-    if ([string]::IsNullOrWhiteSpace($env:KC_ADMIN_IDS)) {
+    if ([string]::IsNullOrWhiteSpace($adminIds)) {
         throw "KC_BOT_TOKEN is set but KC_ADMIN_IDS is empty - silent install needs both."
     }
     Info 'Running silent install'
     $argList = @(
         '/silent',
         '--token', $botToken,
-        '--admin-ids', $env:KC_ADMIN_IDS,
+        '--admin-ids', $adminIds,
         '--night-start', $env:KC_NIGHT_START,
         '--night-end', $env:KC_NIGHT_END,
         '--source', ('"' + (Split-Path $installerPath -Parent) + '"')
@@ -224,12 +292,13 @@ if ([string]::IsNullOrWhiteSpace($botToken)) {
     if ($p.ExitCode -ne 0) { throw "Silent install exited with code $($p.ExitCode)." }
 }
 
-# ---- 5. Apply self-update settings into appsettings (mode-independent) ----
+# ---- 5. Apply self-update + managed (Fleet) settings into appsettings ----
 $applyThumb    = -not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)
 $applyReq      = -not [string]::IsNullOrWhiteSpace($env:KC_REQUIRE_SIGNATURE)
 $applyTok      = -not [string]::IsNullOrWhiteSpace($token)
 $applyInterval = -not [string]::IsNullOrWhiteSpace($env:KC_CHECK_INTERVAL)
-if ($applyThumb -or $applyReq -or $applyTok -or $applyInterval) {
+$applyFleet    = -not [string]::IsNullOrWhiteSpace($env:KC_BACKEND_URL)
+if ($applyThumb -or $applyReq -or $applyTok -or $applyInterval -or $applyFleet) {
     $cfgPath = Join-Path $env:ProgramData 'KidControl\appsettings.json'
     if (Test-Path $cfgPath) {
         $json = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Json
@@ -240,11 +309,32 @@ if ($applyThumb -or $applyReq -or $applyTok -or $applyInterval) {
         if ($applyReq)      { Set-OrAdd $json.Update 'RequireSignature' ($env:KC_REQUIRE_SIGNATURE -match '^(true|1|yes)$') }
         if ($applyTok)      { Set-OrAdd $json.Update 'GitHubToken' $token }
         if ($applyInterval) { Set-OrAdd $json.Update 'CheckInterval' $env:KC_CHECK_INTERVAL }
+
+        # Managed mode: setting Fleet:Url switches the agent to the backend and turns the
+        # built-in bot off; EnrollCode is redeemed once on the first heartbeat, then ignored.
+        if ($applyFleet) {
+            if (-not ($json.PSObject.Properties.Name -contains 'Fleet')) {
+                $json | Add-Member -NotePropertyName Fleet -NotePropertyValue ([pscustomobject]@{})
+            }
+            Set-OrAdd $json.Fleet 'Url' $env:KC_BACKEND_URL
+            if (-not [string]::IsNullOrWhiteSpace($env:KC_ENROLL_CODE)) { Set-OrAdd $json.Fleet 'EnrollCode' $env:KC_ENROLL_CODE }
+            Info "Managed mode -> $($env:KC_BACKEND_URL)"
+        }
+
         ($json | ConvertTo-Json -Depth 16) | Set-Content -LiteralPath $cfgPath -Encoding utf8
-        Info 'Applied self-update settings; restarting service'
+        Info 'Applied settings; restarting service'
         Restart-Service -Name 'KidControlService' -Force -ErrorAction SilentlyContinue
     }
 }
+
+# ---- 6. Confirm the service is running ------------------------------------
+$svcState = (Get-Service -Name 'KidControlService' -ErrorAction SilentlyContinue).Status
+if ($svcState -ne 'Running') {
+    Info 'Starting KidControlService'
+    Start-Service -Name 'KidControlService' -ErrorAction SilentlyContinue
+    try { (Get-Service 'KidControlService').WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) } catch { }
+}
+Ok ("Service status: " + (Get-Service -Name 'KidControlService' -ErrorAction SilentlyContinue).Status)
 
 Ok ("KidControl " + $rel.tag_name + " installed successfully.")
 try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
