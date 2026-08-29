@@ -125,3 +125,10 @@ enforces the signature. Both halves are required — see [SECURITY.md](SECURITY.
   (first install) it seeds a default session. Because state lives in protected
   ProgramData and survives updates, a reboot or update resumes the child's remaining time
   rather than resetting it.
+- **Off-time accounting (intervals).** Time that passes while the PC is off or asleep counts
+  only against a **break** — play time is never consumed while the machine isn't in use
+  (`Session.ApplyOfflineRest`). So shutting down mid-play preserves the remaining play; shutting
+  down mid-break lets the break elapse in the background, and the next boot starts play once the
+  break is over. Crossing the night window's end starts a fresh play phase (a new day). Online,
+  the per-second tick is unchanged; a gap over two minutes is treated as a suspend/resume, not a
+  live tick. See `SessionService.ProcessTickAsync` / `Restore` and `CrossedNightEnd`.

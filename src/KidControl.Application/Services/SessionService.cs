@@ -100,13 +100,34 @@ public sealed class SessionService
             }
             else
             {
+                var wasNight = _session.Status == SessionStatus.NightBlocked;
                 _session.ExitNight();
                 _nightShutdownAt = null;
                 _nightShutdownFired = false;
-                if (_session.Status != SessionStatus.Paused)
+
+                if (wasNight)
                 {
-                    var elapsed = ClampElapsed(now - _lastTickAt);
-                    _session.Tick(elapsed);
+                    // Morning after the night block → start the day on a fresh play phase.
+                    _session.ResetToPlayStart();
+                }
+                else if (_session.Status != SessionStatus.Paused)
+                {
+                    var gap = now - _lastTickAt;
+                    if (gap <= MaxTickJump)
+                    {
+                        // Normal online tick — play and rest both count while the PC is in use.
+                        _session.Tick(ClampElapsed(gap));
+                    }
+                    else if (CrossedNightEnd(localNow - gap, localNow))
+                    {
+                        // Resumed into a new day (a night ended while suspended) → fresh play.
+                        _session.ResetToPlayStart();
+                    }
+                    else
+                    {
+                        // Resumed from sleep/suspend: only a break advances, play stays frozen.
+                        _session.ApplyOfflineRest(gap);
+                    }
                 }
             }
 
@@ -157,6 +178,25 @@ public sealed class SessionService
         }
 
         return elapsed > MaxTickJump ? MaxTickJump : elapsed;
+    }
+
+    /// <summary>
+    /// True if the night window's END (e.g. 07:00) fell between <paramref name="from"/> and
+    /// <paramref name="to"/> — i.e. a night ended while the PC was off/asleep, so the new day
+    /// should begin on a fresh play phase. Keys off the END time alone, so it is correct for
+    /// windows that cross midnight (22:00→07:00). No-op when night is disabled.
+    /// </summary>
+    private bool CrossedNightEnd(DateTimeOffset from, DateTimeOffset to)
+    {
+        if (!_nightEnabled || to <= from)
+        {
+            return false;
+        }
+
+        var toLocal = to.DateTime;
+        var endToday = toLocal.Date + _night.End;
+        var lastEnd = endToday <= toLocal ? endToday : endToday.AddDays(-1);
+        return lastEnd > from.DateTime;
     }
 
     // ─── Command execution ──────────────────────────────────────────────────
@@ -399,11 +439,21 @@ public sealed class SessionService
             {
                 _session = Session.Restore(snapshot.Status, snapshot.TimeRemaining, rule, snapshot.IntervalsEnabled);
 
-                // Account for time elapsed while the service was down.
-                var delta = _clock.LocalNow - snapshot.LastUpdated;
-                if (delta > TimeSpan.Zero)
+                // Account for time the PC was OFF. Only a break advances while off — play time is
+                // never consumed while the machine wasn't in use. If a night ended during the gap,
+                // the new day starts on a fresh play phase.
+                var fromLocal = snapshot.LastUpdated;
+                var toLocal = _clock.LocalNow;
+                if (toLocal > fromLocal)
                 {
-                    _session.Tick(delta);
+                    if (CrossedNightEnd(fromLocal, toLocal))
+                    {
+                        _session.ResetToPlayStart();
+                    }
+                    else
+                    {
+                        _session.ApplyOfflineRest(toLocal - fromLocal);
+                    }
                 }
 
                 _lastTickAt = _clock.UtcNow;

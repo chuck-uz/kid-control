@@ -423,4 +423,62 @@ public sealed class SessionTests
 
         session.TimeRemaining.Should().Be(TimeSpan.Zero);
     }
+
+    // ─── ApplyOfflineRest: off/asleep time counts only against a break ───────
+
+    [Fact]
+    public void ApplyOfflineRest_Should_NotConsumePlay()
+    {
+        var session = Session.Restore(SessionStatus.Playing, TimeSpan.FromMinutes(20), Rule40x20);
+
+        session.ApplyOfflineRest(TimeSpan.FromHours(11)); // off overnight while mid-play
+
+        session.Status.Should().Be(SessionStatus.Playing);
+        session.TimeRemaining.Should().Be(TimeSpan.FromMinutes(20)); // untouched
+    }
+
+    [Fact]
+    public void ApplyOfflineRest_Should_DecrementRest()
+    {
+        var session = Session.Restore(SessionStatus.Resting, TimeSpan.FromMinutes(20), Rule40x20);
+
+        session.ApplyOfflineRest(TimeSpan.FromMinutes(8));
+
+        session.Status.Should().Be(SessionStatus.Resting);
+        session.TimeRemaining.Should().Be(TimeSpan.FromMinutes(12));
+    }
+
+    [Fact]
+    public void ApplyOfflineRest_Should_StartFreshPlay_When_RestFullyElapses()
+    {
+        var session = Session.Restore(SessionStatus.Resting, TimeSpan.FromMinutes(10), Rule40x20);
+
+        session.ApplyOfflineRest(TimeSpan.FromHours(3)); // long off — rest completed
+
+        session.Status.Should().Be(SessionStatus.Playing);
+        session.TimeRemaining.Should().Be(Rule40x20.PlayDuration); // fresh full play, not burned down
+    }
+
+    [Theory]
+    [InlineData(SessionStatus.ForceBlocked)]
+    [InlineData(SessionStatus.NightBlocked)]
+    [InlineData(SessionStatus.Paused)]
+    public void ApplyOfflineRest_Should_Ignore_NonCycleStates(SessionStatus status)
+    {
+        var session = Session.Restore(status, TimeSpan.FromMinutes(5), Rule40x20);
+
+        session.ApplyOfflineRest(TimeSpan.FromHours(2));
+
+        session.Status.Should().Be(status);
+    }
+
+    [Fact]
+    public void ApplyOfflineRest_Should_NoOp_When_IntervalsDisabled()
+    {
+        var session = Session.Restore(SessionStatus.Resting, TimeSpan.FromMinutes(10), Rule40x20, intervalsEnabled: false);
+
+        session.ApplyOfflineRest(TimeSpan.FromHours(2));
+
+        session.TimeRemaining.Should().Be(TimeSpan.FromMinutes(10));
+    }
 }
