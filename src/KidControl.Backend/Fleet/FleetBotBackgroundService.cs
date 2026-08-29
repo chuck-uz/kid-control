@@ -27,6 +27,9 @@ public sealed class FleetBotBackgroundService(
     // chatId -> deviceId awaiting a new name (the operator's next text message is the name).
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRename = new();
 
+    // Chats whose stale reply keyboard (left over from the old standalone bot) we've cleared.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, byte> _kbCleared = new();
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!Enabled)
@@ -106,6 +109,9 @@ public sealed class FleetBotBackgroundService(
             await Send(chatId, $"⛔ Нет доступа. Ваш ID: {chatId}\nПопросите администратора: /addadmin {chatId}", ct);
             return;
         }
+
+        // Kill the stale reply keyboard left by the old standalone bot (once per chat).
+        await EnsureKeyboardClearedAsync(chatId, ct);
 
         // Awaiting a new device name? The next non-command message is the name.
         if (_awaitingRename.TryRemove(chatId, out var renameId))
@@ -332,6 +338,21 @@ public sealed class FleetBotBackgroundService(
         var s = tail.ElementAtOrDefault(idx) ?? "0000";
         return s.Length == 4 && int.TryParse(s[..2], out var h) && int.TryParse(s[2..], out var m)
             ? new TimeSpan(h, m, 0) : TimeSpan.Zero;
+    }
+
+    private async Task EnsureKeyboardClearedAsync(long chatId, CancellationToken ct)
+    {
+        if (!_kbCleared.TryAdd(chatId, 0))
+            return;
+        try
+        {
+            await bot.SendMessage(chatId, "🔄 Меню обновлено — используйте кнопки под сообщениями.",
+                replyMarkup: new ReplyKeyboardRemove(), cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not clear reply keyboard for {ChatId}.", chatId);
+        }
     }
 
     private Task Send(long chatId, string text, CancellationToken ct)
