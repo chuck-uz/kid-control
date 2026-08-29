@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark light" />
+<title>KidControl — панель</title>
+<style>
+  /* 8-pt grid: all spacing is a multiple of 8 (occasionally 4). */
+  :root {
+    --bg: #0e1116; --surface: #171b22; --surface-2: #1e232c; --border: #2a303b;
+    --text: #e6e9ef; --muted: #9aa4b2; --faint: #6b7480;
+    --accent: #4c8dff; --accent-weak: #1d2b45;
+    --green: #37d67a; --amber: #f2b84b; --red: #ff5c5c; --violet: #b98cff;
+    --radius: 12px; --shadow: 0 6px 24px rgba(0,0,0,.35);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ── Login ─────────────────────────────────────────────────────────── */
+  .login { min-height: 100%; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; box-shadow: var(--shadow); }
+  .login-card h1 { margin: 0 0 8px; font-size: 20px; }
+  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+  .field { display: flex; flex-direction: column; gap: 8px; }
+  label { font-size: 12px; color: var(--muted); }
+  input[type=password], input[type=text] {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    padding: 12px; font-size: 14px; outline: none; width: 100%;
+  }
+  input:focus { border-color: var(--accent); }
+  .btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 12px 16px; font-size: 14px; font-weight: 600; }
+  .btn.block { width: 100%; margin-top: 16px; }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 8px 12px; font-weight: 500; }
+  .btn.ghost:hover { color: var(--text); border-color: var(--faint); }
+  .err { color: var(--red); font-size: 13px; margin-top: 16px; min-height: 18px; }
+
+  /* ── App shell ─────────────────────────────────────────────────────── */
+  .app { display: none; max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+  header.bar { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  .spacer { flex: 1; }
+  .updated { color: var(--faint); font-size: 12px; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .stat .n { font-size: 24px; font-weight: 700; }
+  .stat .l { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .stat.online .n { color: var(--green); }
+  .stat.offline .n { color: var(--faint); }
+  .stat.alert .n { color: var(--amber); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; cursor: pointer; transition: border-color .15s, transform .05s; }
+  .card:hover { border-color: var(--faint); }
+  .card:active { transform: translateY(1px); }
+  .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .status-dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.off { background: var(--faint); }
+  .name { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ver { margin-left: auto; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .row { display: flex; align-items: baseline; gap: 8px; }
+  .time { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .time.unlim { color: var(--violet); font-size: 18px; }
+  .state { color: var(--muted); font-size: 13px; }
+  .meta { display: flex; gap: 8px; align-items: center; margin-top: 16px; color: var(--faint); font-size: 12px; flex-wrap: wrap; }
+  .chips { display: flex; gap: 4px; margin-left: auto; }
+  .chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); }
+  .chip.block { color: var(--red); border-color: #43272b; }
+  .chip.pause { color: var(--amber); border-color: #43391f; }
+  .chip.night { color: var(--violet); border-color: #322843; }
+
+  .empty, .loading { color: var(--muted); text-align: center; padding: 48px 16px; }
+
+  /* ── Detail drawer ─────────────────────────────────────────────────── */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: 100%; max-width: 440px; background: var(--surface);
+    border-left: 1px solid var(--border); box-shadow: var(--shadow); transform: translateX(100%); transition: transform .2s ease;
+    display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .drawer header { display: flex; align-items: center; gap: 8px; padding: 24px; border-bottom: 1px solid var(--border); }
+  .drawer header .name { font-size: 18px; }
+  .drawer .body { padding: 24px; overflow-y: auto; }
+  .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; margin-bottom: 24px; }
+  .kv dt { color: var(--muted); font-size: 13px; }
+  .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); margin: 0 0 8px; }
+  .hist { list-style: none; margin: 0; padding: 0; }
+  .hist li { display: flex; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .hist .at { color: var(--faint); font-variant-numeric: tabular-nums; flex: none; width: 88px; }
+  .hist .who { color: var(--muted); margin-left: auto; flex: none; }
+  .close { margin-left: auto; }
+
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <!-- Login -->
+  <div class="login" id="login">
+    <form class="login-card" id="loginForm">
+      <h1>🛡️ KidControl</h1>
+      <p>Панель управления флотом. Введите ключ администратора.</p>
+      <div class="field">
+        <label for="key">Admin key</label>
+        <input id="key" type="password" autocomplete="current-password" placeholder="X-Admin-Key" />
+      </div>
+      <button class="btn block" type="submit">Войти</button>
+      <div class="err" id="loginErr"></div>
+    </form>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app">
+    <header class="bar">
+      <div class="brand"><span class="dot"></span> KidControl</div>
+      <span class="spacer"></span>
+      <span class="updated" id="updated"></span>
+      <button class="btn ghost" id="refreshBtn">Обновить</button>
+      <button class="btn ghost" id="logoutBtn">Выйти</button>
+    </header>
+
+    <section class="stats" id="stats"></section>
+    <div id="content"><div class="loading">Загрузка…</div></div>
+  </div>
+
+  <!-- Detail drawer -->
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <header>
+      <span class="status-dot" id="dDot"></span>
+      <span class="name" id="dName"></span>
+      <button class="btn ghost close" id="dClose">Закрыть</button>
+    </header>
+    <div class="body" id="dBody"></div>
+  </aside>
+
+<script>
+(() => {
+  "use strict";
+  const KEY_STORE = "kc_admin_key";
+  const ONLINE_MS = 3 * 60 * 1000;
+  const REFRESH_MS = 15000;
+
+  const $ = (id) => document.getElementById(id);
+  let key = null, timer = null, devices = [];
+
+  // ── API ───────────────────────────────────────────────────────────
+  async function api(path) {
+    const r = await fetch(path, { headers: { "X-Admin-Key": key } });
+    if (r.status === 401 || r.status === 404) { const e = new Error("auth"); e.auth = true; throw e; }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }
+
+  // ── Formatting ────────────────────────────────────────────────────
+  const pad = (n) => String(n).padStart(2, "0");
+  function fmtDuration(ts) {
+    // .NET TimeSpan JSON: "[d.]hh:mm:ss[.fff]".
+    if (!ts) return "—";
+    const m = String(ts).match(/(?:(\d+)\.)?(\d{2}):(\d{2}):(\d{2})/);
+    if (!m) return String(ts);
+    const d = +(m[1] || 0), h = +m[2], mi = +m[3], s = +m[4];
+    return (d ? d + "д " : "") + pad(h) + ":" + pad(mi) + ":" + pad(s);
+  }
+  function agoMin(iso) { return iso ? Math.floor((Date.now() - new Date(iso)) / 60000) : null; }
+  function isOnline(d) { const a = agoMin(d.lastSeenAt); return a !== null && a * 60000 < ONLINE_MS; }
+  function fmtSeen(iso) {
+    const a = agoMin(iso);
+    if (a === null) return "никогда";
+    if (a <= 0) return "только что"; if (a === 1) return "1 мин назад";
+    if (a < 60) return a + " мин назад";
+    const h = Math.floor(a / 60); return h + " ч назад";
+  }
+  // Tashkent (UTC+5) time for history/timestamps.
+  function fmtLocal(iso) {
+    if (!iso) return "—";
+    const d = new Date(new Date(iso).getTime() + 5 * 3600000);
+    return pad(d.getUTCDate()) + "." + pad(d.getUTCMonth() + 1) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes());
+  }
+  const ACTIONS = {
+    "policy.edit": "правка политики", "desired.pause": "пауза", "desired.resume": "снятие паузы",
+    "desired.block": "блокировка", "desired.unblock": "разблокировка", "desired.night_bypass": "ночной обход",
+    "device.enroll": "привязка", "device.revoke": "отзыв", "device.rename": "переименование",
+    "command.add_time": "+время", "command.reset_timer": "сброс таймера", "command.shutdown": "выключение",
+    "command.restart": "перезагрузка", "command.update_now": "обновление", "command.screenshot": "скриншот",
+    "command.play_audio": "аудио",
+  };
+  const actionLabel = (a) => ACTIONS[a] || (a.startsWith("command.") ? "команда " + a.slice(8) : a);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // ── Render ────────────────────────────────────────────────────────
+  function chips(d) {
+    let h = "";
+    if (d.forceBlocked) h += '<span class="chip block">🚫 блок</span>';
+    if (d.paused) h += '<span class="chip pause">⏸️ пауза</span>';
+    if (d.isNight) h += '<span class="chip night">🌙 ночь</span>';
+    return h ? `<span class="chips">${h}</span>` : "";
+  }
+  function timeCell(d) {
+    return d.isUnlimited
+      ? '<span class="time unlim">♾️ без ограничений</span>'
+      : `<span class="time">${fmtDuration(d.timeRemaining)}</span>`;
+  }
+  function renderStats() {
+    const online = devices.filter(isOnline).length;
+    const alerts = devices.filter((d) => d.forceBlocked || d.paused).length;
+    $("stats").innerHTML = `
+      <div class="stat"><div class="n">${devices.length}</div><div class="l">устройств</div></div>
+      <div class="stat online"><div class="n">${online}</div><div class="l">онлайн</div></div>
+      <div class="stat offline"><div class="n">${devices.length - online}</div><div class="l">офлайн</div></div>
+      <div class="stat alert"><div class="n">${alerts}</div><div class="l">блок / пауза</div></div>`;
+  }
+  function renderGrid() {
+    if (!devices.length) { $("content").innerHTML = '<div class="empty">Пока нет устройств. Добавьте через бота: /enroll</div>'; return; }
+    const cards = devices.map((d, i) => {
+      const on = isOnline(d);
+      return `<div class="card" data-i="${i}">
+        <div class="card-top">
+          <span class="status-dot ${on ? "on" : "off"}"></span>
+          <span class="name">${esc(d.name)}</span>
+          <span class="ver">v${esc(d.agentVersion || "—")}</span>
+        </div>
+        <div class="row">${timeCell(d)}</div>
+        <div class="state">${esc(d.status || "нет данных")}</div>
+        <div class="meta">${on ? "🟢 на связи" : "⚪ " + fmtSeen(d.lastSeenAt)} ${chips(d)}</div>
+      </div>`;
+    }).join("");
+    $("content").innerHTML = `<div class="grid">${cards}</div>`;
+    document.querySelectorAll(".card").forEach((c) => c.addEventListener("click", () => openDrawer(+c.dataset.i)));
+  }
+
+  async function openDrawer(i) {
+    const d = devices[i];
+    const on = isOnline(d);
+    $("dDot").className = "status-dot " + (on ? "on" : "off");
+    $("dName").textContent = d.name;
+    const target = d.targetVersion && d.targetVersion !== "latest" ? "📌 " + d.targetVersion : "🆕 latest";
+    $("dBody").innerHTML = `
+      <dl class="kv">
+        <dt>Статус</dt><dd>${esc(d.status || "нет данных")}</dd>
+        <dt>Время</dt><dd>${d.isUnlimited ? "♾️ без ограничений" : fmtDuration(d.timeRemaining)}</dd>
+        <dt>Режим</dt><dd>${[d.forceBlocked ? "🚫 блок" : "", d.paused ? "⏸️ пауза" : "", d.isNight ? "🌙 ночь" : ""].filter(Boolean).join(" · ") || "обычный"}</dd>
+        <dt>Версия</dt><dd>${esc(d.agentVersion || "—")}</dd>
+        <dt>Целевая</dt><dd>${esc(target)}</dd>
+        <dt>Политика</dt><dd>v${esc(d.policyVersion)}</dd>
+        <dt>На связи</dt><dd>${on ? "🟢 сейчас" : fmtSeen(d.lastSeenAt)}</dd>
+      </dl>
+      <h3>История</h3>
+      <ul class="hist" id="hist"><li>Загрузка…</li></ul>`;
+    $("scrim").style.display = "block"; $("drawer").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false");
+    try {
+      const hist = await api(`/admin/devices/${d.id}/history?limit=30`);
+      $("hist").innerHTML = hist.length
+        ? hist.map((e) => `<li><span class="at">${fmtLocal(e.at)}</span><span>${esc(actionLabel(e.action))}</span><span class="who">${esc(e.actor)}</span></li>`).join("")
+        : '<li>Записей пока нет.</li>';
+    } catch (e) { if (e.auth) return logout(); $("hist").innerHTML = '<li>Не удалось загрузить историю.</li>'; }
+  }
+  function closeDrawer() { $("scrim").style.display = "none"; $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); }
+
+  // ── Load loop ─────────────────────────────────────────────────────
+  async function load() {
+    try {
+      devices = await api("/admin/devices");
+      devices.sort((a, b) => (isOnline(b) - isOnline(a)) || a.name.localeCompare(b.name));
+      renderStats(); renderGrid();
+      $("updated").textContent = "обновлено " + new Date().toLocaleTimeString("ru-RU");
+    } catch (e) {
+      if (e.auth) return logout();
+      $("content").innerHTML = `<div class="empty">Ошибка загрузки: ${esc(e.message)}</div>`;
+    }
+  }
+  function startAuto() { clearInterval(timer); timer = setInterval(load, REFRESH_MS); }
+
+  // ── Auth flow ─────────────────────────────────────────────────────
+  function showApp() { $("login").style.display = "none"; $("app").style.display = "block"; }
+  function showLogin() { $("app").style.display = "none"; $("login").style.display = "grid"; $("key").focus(); }
+  function logout() { clearInterval(timer); key = null; try { localStorage.removeItem(KEY_STORE); } catch {} closeDrawer(); showLogin(); }
+
+  $("loginForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    key = $("key").value.trim();
+    if (!key) return;
+    $("loginErr").textContent = "";
+    try {
+      await api("/admin/devices");
+      try { localStorage.setItem(KEY_STORE, key); } catch {}
+      showApp(); load(); startAuto();
+    } catch (e) { key = null; $("loginErr").textContent = e.auth ? "Неверный ключ." : "Ошибка: " + e.message; }
+  });
+  $("refreshBtn").addEventListener("click", load);
+  $("logoutBtn").addEventListener("click", logout);
+  $("dClose").addEventListener("click", closeDrawer);
+  $("scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+  // Resume a stored session.
+  try { key = localStorage.getItem(KEY_STORE); } catch {}
+  if (key) { showApp(); load().then(startAuto); } else { showLogin(); }
+})();
+</script>
+</body>
+</html>
