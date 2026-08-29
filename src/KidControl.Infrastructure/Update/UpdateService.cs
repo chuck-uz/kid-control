@@ -23,12 +23,10 @@ namespace KidControl.Infrastructure.Update;
 public sealed class UpdateService(
     GitHubReleaseClient client,
     AuthenticodeVerifier verifier,
-    ISystemController system,
+    IUpdateLauncher launcher,
     IOptions<UpdateConfig> config,
     ILogger<UpdateService> logger) : IUpdateService
 {
-    private static readonly TimeSpan InstallerHeadStart = TimeSpan.FromSeconds(2);
-
     private readonly UpdateConfig _config = config.Value;
     private int _launchStarted;
 
@@ -134,26 +132,14 @@ public sealed class UpdateService(
             // payloads it will deploy — before launching anything as SYSTEM.
             VerifySignatures(sourceDir, installerExe);
 
-            // The installer's headless binary-only update copies payloads from --source and
-            // preserves appsettings.json + session_state.json. (Both update and rollback use
-            // this path; only the tag whose asset we fetched differs.)
-            var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = installerExe,
-                Arguments = $"/update --source \"{sourceDir}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = sourceDir
-            });
-
-            if (process is null)
-            {
-                throw new InvalidOperationException("Installer process failed to launch.");
-            }
-
-            logger.LogInformation("Update: installer launched ({Kind} {Tag}); scheduling service stop.", kind, tag);
-            await Task.Delay(InstallerHeadStart, ct).ConfigureAwait(false);
-            system.RequestServiceStop();
+            // Hand the swap to a DETACHED updater (Task Scheduler, SYSTEM). It stops the
+            // service itself, backs up the current binaries, copies the new payload from
+            // --source (preserving appsettings.json + session_state.json), restarts, health-
+            // checks and rolls back on failure. Crucially the updater is NOT a child of this
+            // service, so our own stop can never kill the swap mid-flight — and we do NOT stop
+            // ourselves here; the updater owns the stop/start lifecycle.
+            launcher.LaunchDetached(installerExe, sourceDir);
+            logger.LogInformation("Update: detached updater launched ({Kind} {Tag}).", kind, tag);
         }
         catch (Exception)
         {

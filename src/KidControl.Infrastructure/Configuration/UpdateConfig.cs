@@ -13,11 +13,12 @@ public sealed class UpdateConfig
     /// (update.bat, or the bot's "update now"). Auto-install still enforces the
     /// signature/thumbprint checks, so an unsigned or untrusted release is never run.
     ///
-    /// Default OFF: automatic in-place install proved unreliable in the field (the service
-    /// could hang mid-swap). Manual update is the supported path; a deployment that wants
-    /// hands-off updates can opt back in by setting Update:AutoInstall=true.
+    /// Default ON again as of v2.2: the swap now runs in a DETACHED updater (Task Scheduler,
+    /// not a child of the service) that backs up the current binaries, health-checks the new
+    /// version and rolls back on failure — the mid-swap hang/brick that forced this OFF in
+    /// v2.1 can no longer strand the agent. Set Update:AutoInstall=false to opt out.
     /// </summary>
-    public bool AutoInstall { get; init; }
+    public bool AutoInstall { get; init; } = true;
 
     /// <summary>GitHub owner. Fixed at deploy time — NOT taken from an attacker-writable source.</summary>
     public string Owner { get; init; } = "chuck-uz";

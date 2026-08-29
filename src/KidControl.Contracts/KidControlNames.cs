@@ -29,6 +29,13 @@ public static class KidControlNames
     /// <summary>Scheduled task that launches the UI in the interactive session (Session 0 fallback).</summary>
     public const string UiLaunchTaskName = "KidControl.UiHost.Launch";
 
+    /// <summary>
+    /// One-shot scheduled task that applies a staged self-update. Run under Task Scheduler
+    /// (SYSTEM), it is deliberately NOT a child of the service it swaps — so stopping the
+    /// service can never kill the updater mid-swap (the v2.1 brick).
+    /// </summary>
+    public const string UpdateTaskName = "KidControl.Update.Apply";
+
     /// <summary>Root of protected app data, under %ProgramData%.</summary>
     public const string AppDataFolderName = "KidControl";
 }

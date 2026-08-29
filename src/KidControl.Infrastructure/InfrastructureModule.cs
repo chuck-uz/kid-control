@@ -95,6 +95,10 @@ public static class InfrastructureModule
             }
         });
 
+        // Detached updater: the swap runs outside the service's process tree (Task Scheduler),
+        // so stopping the service can't kill it mid-swap.
+        services.AddSingleton<IUpdateLauncher, ScheduledTaskUpdateLauncher>();
+
         return services;
     }
 }
