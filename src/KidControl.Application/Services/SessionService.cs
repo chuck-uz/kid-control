@@ -349,7 +349,8 @@ public sealed class SessionService
     }
 
     private SessionStateDto Snapshot(bool isNight) =>
-        new(_session.Status.ToString(), _session.TimeRemaining, isNight, !_session.IntervalsEnabled, NightShutdownSeconds());
+        new(_session.Status.ToString(), _session.TimeRemaining, isNight, !_session.IntervalsEnabled, NightShutdownSeconds(),
+            _lastNightAlert == DateTimeOffset.MinValue ? null : _lastNightAlert);
 
     private static string Emoji(SessionStatus status) => status switch
     {

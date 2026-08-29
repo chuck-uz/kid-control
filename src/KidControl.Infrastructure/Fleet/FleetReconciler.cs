@@ -61,7 +61,8 @@ public sealed class FleetReconciler(
                 IsNight = live.IsNightMode,
                 IsUnlimited = live.IsUnlimited,
                 ShutdownInSeconds = live.ShutdownInSeconds,
-                AgentVersion = agent.AgentVersion
+                AgentVersion = agent.AgentVersion,
+                LastNightAttemptAt = live.LastNightAttemptAt
             },
             PolicyVersion = _state.PolicyVersion,
             DesiredVersion = _state.DesiredVersion
