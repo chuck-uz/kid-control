@@ -17,6 +17,13 @@ public interface IServiceInstaller
     void Start();
 
     void StopAndWait(TimeSpan timeout);
+
+    /// <summary>
+    /// Returns true if the service reaches Running within <paramref name="timeout"/> AND stays
+    /// Running through a short stability window — so a new build that crash-loops (flaps
+    /// Running→Stopped) is reported unhealthy and the update path can roll back.
+    /// </summary>
+    bool WaitUntilHealthy(TimeSpan timeout);
 }
 
 /// <summary>
@@ -32,6 +39,7 @@ public interface IServiceInstaller
 public sealed class ServiceInstaller : IServiceInstaller
 {
     private static readonly TimeSpan ScTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan StabilityWindow = TimeSpan.FromSeconds(8);
 
     private readonly string _serviceName;
     private readonly string _displayName;
@@ -114,6 +122,45 @@ public sealed class ServiceInstaller : IServiceInstaller
 
         controller.Start();
         controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+    }
+
+    public bool WaitUntilHealthy(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        using var controller = new ServiceController(_serviceName);
+
+        // Phase 1: reach Running (SCM may take a moment; a crash also triggers failure-recovery
+        // restarts, so a transient Stopped isn't yet a verdict — keep polling until the deadline).
+        while (DateTime.UtcNow < deadline)
+        {
+            controller.Refresh();
+            if (controller.Status == ServiceControllerStatus.Running)
+            {
+                break;
+            }
+
+            Thread.Sleep(500);
+        }
+
+        controller.Refresh();
+        if (controller.Status != ServiceControllerStatus.Running)
+        {
+            return false;
+        }
+
+        // Phase 2: stability window — the new binaries must stay up, not flap back to Stopped.
+        var stableDeadline = DateTime.UtcNow + StabilityWindow;
+        while (DateTime.UtcNow < stableDeadline)
+        {
+            Thread.Sleep(1000);
+            controller.Refresh();
+            if (controller.Status != ServiceControllerStatus.Running)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public void StopAndWait(TimeSpan timeout)

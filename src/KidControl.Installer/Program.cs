@@ -20,7 +20,9 @@ internal static class Program
     private static int Main(string[] args)
     {
         var silent = HasFlag(args, "/silent");
-        var update = HasFlag(args, "/update");
+        // /apply-update is the DETACHED self-update entry (launched by the scheduled task the
+        // running service registers); it runs the exact same crash-safe /update orchestration.
+        var update = HasFlag(args, "/update") || HasFlag(args, "/apply-update");
         var enroll = HasFlag(args, "/enroll");
 
         if (silent || update)

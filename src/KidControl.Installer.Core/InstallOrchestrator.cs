@@ -96,9 +96,15 @@ public sealed class InstallOrchestrator
     }
 
     /// <summary>
-    /// Binary-only update: stop + kill → copy files → re-lock → re-register → start.
-    /// Deliberately does NOT touch appsettings.json or session_state.json, so the
-    /// operator's Telegram config and the child's current timer survive the update.
+    /// Crash-safe binary-only update: stop (NEVER delete) → back up current binaries → copy
+    /// new files → start → health-check; roll back to the backup on any failure. Deliberately
+    /// does NOT touch appsettings.json or session_state.json, so the operator's config and the
+    /// child's current timer survive.
+    ///
+    /// The two fixes over v2.1 (which could brick the agent): (1) the service is never
+    /// <c>sc delete</c>-d during an update — its registration is stable, so an interruption
+    /// can't leave the machine with no service at all; (2) a failed swap is rolled back and the
+    /// previous version restarted, instead of leaving half-written binaries behind.
     /// </summary>
     public void Update(UpdateRequest request, Action<string> progress)
     {
@@ -106,8 +112,7 @@ public sealed class InstallOrchestrator
         ArgumentNullException.ThrowIfNull(progress);
 
         progress("Stopping the service…");
-        _service.StopAndWait(TimeSpan.FromSeconds(60));
-        _service.Uninstall();
+        _service.StopAndWait(TimeSpan.FromSeconds(90));
 
         progress("Terminating running KidControl processes…");
         _processes.KillAll(progress);
@@ -115,18 +120,75 @@ public sealed class InstallOrchestrator
         progress("Unlocking install directory…");
         _acl.UnlockInstallDirectory(_locations.InstallDirectory);
 
-        progress("Copying updated binaries…");
-        _deployer.CopyBinaries(request.SourceDirectory);
+        progress("Backing up the current version…");
+        var backupDir = _deployer.BackupBinaries();
 
-        progress("Re-applying directory protection…");
-        _acl.LockInstallDirectory(_locations.InstallDirectory);
+        try
+        {
+            progress("Copying updated binaries…");
+            _deployer.CopyBinaries(request.SourceDirectory);
 
-        progress("Re-registering the service…");
-        _service.Install(_locations.ServiceExecutablePath);
-        _service.Start();
+            progress("Re-applying directory protection…");
+            _acl.LockInstallDirectory(_locations.InstallDirectory);
 
-        _registry.ProtectServiceKey();
-        progress("Update complete.");
+            // The service registration is stable across updates (fixed binPath). Only
+            // (re)create it if it somehow went missing — we never delete it ourselves.
+            if (!_service.IsInstalled())
+            {
+                progress("Registering the Windows service…");
+                _service.Install(_locations.ServiceExecutablePath);
+            }
+
+            progress("Starting the service…");
+            _service.Start();
+
+            progress("Verifying the new version is healthy…");
+            if (!_service.WaitUntilHealthy(TimeSpan.FromSeconds(60)))
+            {
+                throw new InvalidOperationException("The updated service did not stay healthy after start.");
+            }
+
+            _registry.ProtectServiceKey();
+            _deployer.DiscardBackup(backupDir);
+            progress("Update complete.");
+        }
+        catch (Exception ex)
+        {
+            progress($"Update failed: {ex.Message}. Rolling back to the previous version…");
+            RollBack(backupDir, progress);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Restores the pre-update binaries and restarts the service. Best effort: any failure here
+    /// is swallowed after logging via <paramref name="progress"/>, because the SCM failure-
+    /// recovery (auto-restart) is the final backstop and we must not throw over the original
+    /// error that triggered the rollback.
+    /// </summary>
+    private void RollBack(string backupDir, Action<string> progress)
+    {
+        try
+        {
+            _service.StopAndWait(TimeSpan.FromSeconds(60));
+            _processes.KillAll(progress);
+            _acl.UnlockInstallDirectory(_locations.InstallDirectory);
+            _deployer.RestoreBinaries(backupDir);
+            _acl.LockInstallDirectory(_locations.InstallDirectory);
+
+            if (!_service.IsInstalled())
+            {
+                _service.Install(_locations.ServiceExecutablePath);
+            }
+
+            _service.Start();
+            _registry.ProtectServiceKey();
+            progress("Rolled back to the previous version.");
+        }
+        catch (Exception ex)
+        {
+            progress($"Rollback also failed: {ex.Message}. SCM auto-restart will recover the service.");
+        }
     }
 
     /// <summary>Full uninstall: unprotect → stop + delete service → kill → relax ACLs → delete trees.</summary>
