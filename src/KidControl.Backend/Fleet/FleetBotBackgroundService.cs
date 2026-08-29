@@ -154,9 +154,10 @@ public sealed class FleetBotBackgroundService(
         // ── Device-scoped folders (operate on the selected device) ──
         if (IsKeyboardButton(t))
         {
-            if (!_selected.TryGetValue(chatId, out var id))
+            var resolved = await ResolveDeviceAsync(actions, chatId, ct);
+            if (resolved is not { } id)
             {
-                await Send(chatId, "Сначала выберите устройство:", ct);
+                // 0 devices, or several with no clear pick → show the list (offline flagged there).
                 await ShowDeviceListAsync(actions, chatId, ct);
                 return;
             }
@@ -199,14 +200,44 @@ public sealed class FleetBotBackgroundService(
         rows.Add([InlineKeyboardButton.WithCallbackData("📋 Все устройства", "all"),
                   InlineKeyboardButton.WithCallbackData("🔑 /enroll", "enroll")]);
 
-        await bot.SendMessage(chatId, "Выберите устройство:", replyMarkup: new InlineKeyboardMarkup(rows),
+        var offline = list.Where(d => !IsOnline(d)).Select(d => d.Name).ToList();
+        var header = offline.Count == 0
+            ? "Выберите устройство:"
+            : $"⚠️ Не на связи: {string.Join(", ", offline)}.\nВыберите устройство:";
+
+        await bot.SendMessage(chatId, header, replyMarkup: new InlineKeyboardMarkup(rows),
             cancellationToken: ct);
     }
 
+    private static bool IsOnline(DeviceSummary d)
+        => d.LastSeenAt is { } ls && (DateTimeOffset.UtcNow - ls) < TimeSpan.FromMinutes(3);
+
     private static string DeviceLabel(DeviceSummary d)
     {
-        var online = d.LastSeenAt is { } ls && (DateTimeOffset.UtcNow - ls) < TimeSpan.FromMinutes(3) ? "🟢" : "⚪";
-        return $"{online} {d.Name} — {d.Status ?? "?"}";
+        if (IsOnline(d))
+            return $"🟢 {d.Name} — {d.Status ?? "?"}";
+        var ago = d.LastSeenAt is { } ls ? $"{(DateTimeOffset.UtcNow - ls).TotalMinutes:F0} мин" : "никогда";
+        return $"⚪ {d.Name} — оффлайн ({ago})";
+    }
+
+    /// <summary>
+    /// The device this chat should act on, WITHOUT prompting when it's unambiguous: keep the
+    /// sticky selection if it still exists; else auto-pick when there is exactly one device.
+    /// Returns null only when there are zero, or several with no valid selection — then the
+    /// caller shows the picker (which flags offline devices).
+    /// </summary>
+    private async Task<Guid?> ResolveDeviceAsync(FleetBotActions actions, long chatId, CancellationToken ct)
+    {
+        var list = await actions.ListDevicesAsync(ct);
+        if (_selected.TryGetValue(chatId, out var id) && list.Any(d => d.Id == id))
+            return id;
+        _selected.TryRemove(chatId, out _);
+        if (list.Count == 1)
+        {
+            _selected[chatId] = list[0].Id;
+            return list[0].Id;
+        }
+        return null;
     }
 
     /// <summary>Select a device for this chat and show its status with the persistent control keyboard.</summary>
