@@ -173,6 +173,60 @@ public class HeartbeatServiceTests
     }
 
     [Fact]
+    public async Task Heartbeat_accumulates_active_use_into_daily_usage()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var clock = new TestClock(T0);
+        var svc = Svc(db, clock);
+
+        await svc.HandleAsync(id, Beat(3, 2)); // first beat: no previous → nothing counted
+        clock.Now = T0.AddSeconds(60);
+        await svc.HandleAsync(id, Beat(3, 2)); // +60s of Playing, continuous online
+
+        var usage = await new DeviceAdminService(db, clock).GetUsageAsync(id, 1);
+        usage.Single().Seconds.Should().Be(60);
+    }
+
+    [Fact]
+    public async Task Heartbeat_usage_ignores_offline_gaps_and_non_play()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var clock = new TestClock(T0);
+        var svc = Svc(db, clock);
+
+        await svc.HandleAsync(id, Beat(3, 2));
+        clock.Now = T0.AddMinutes(30); // a long gap = the PC was off → must NOT count
+        await svc.HandleAsync(id, Beat(3, 2));
+
+        clock.Now = clock.Now.AddSeconds(60); // continuous, but not the Playing phase
+        await svc.HandleAsync(id, new HeartbeatRequest
+        {
+            Status = new StatusReportDto { Status = "Resting" },
+            PolicyVersion = 3,
+            DesiredVersion = 2
+        });
+
+        var usage = await new DeviceAdminService(db, clock).GetUsageAsync(id, 1);
+        usage.Sum(u => u.Seconds).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetUsage_fills_missing_days_with_zero()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var clock = new TestClock(T0);
+
+        var usage = await new DeviceAdminService(db, clock).GetUsageAsync(id, 7);
+
+        usage.Should().HaveCount(7);
+        usage.Should().OnlyContain(u => u.Seconds == 0);
+        usage.Select(u => u.Day).Should().BeInAscendingOrder();
+    }
+
+    [Fact]
     public async Task Policy_edit_bumps_version_and_applies_patch()
     {
         await using var db = NewDb();
