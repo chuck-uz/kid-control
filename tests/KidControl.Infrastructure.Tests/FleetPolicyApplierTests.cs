@@ -25,16 +25,17 @@ public class FleetPolicyApplierTests
         var commands = FleetPolicyApplier.ToCommands(policy);
 
         commands.Should().HaveCount(4);
-        commands[0].Should().BeOfType<SessionCommand.SetIntervals>()
-            .Which.Enabled.Should().BeFalse();
-        commands[1].Should().BeOfType<SessionCommand.SetNight>()
+        commands[0].Should().BeOfType<SessionCommand.SetNight>()
             .Which.Window.Should().Be(policy.ToNightWindow());
-        commands[2].Should().BeOfType<SessionCommand.SetNightEnabled>()
+        commands[1].Should().BeOfType<SessionCommand.SetNightEnabled>()
             .Which.Enabled.Should().BeFalse();
-        // Rule MUST be last: it resizes the active phase, so it applies over the final settings.
-        var rule = commands[3].Should().BeOfType<SessionCommand.SetRule>().Which.Rule;
+        var rule = commands[2].Should().BeOfType<SessionCommand.SetRule>().Which.Rule;
         rule.PlayMinutes.Should().Be(45);
         rule.RestMinutes.Should().Be(15);
+        // Intervals MUST be last: it has the final word on the countdown (clears it when off,
+        // so applying the rule can't repopulate a leftover time on an unlimited device).
+        commands[3].Should().BeOfType<SessionCommand.SetIntervals>()
+            .Which.Enabled.Should().BeFalse();
     }
 
     [Fact]

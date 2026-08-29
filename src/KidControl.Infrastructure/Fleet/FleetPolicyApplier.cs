@@ -19,11 +19,13 @@ public sealed class FleetPolicyApplier(
     /// <summary>Pure translation of a policy into the ordered commands that realise it.</summary>
     public static IReadOnlyList<SessionCommand> ToCommands(PolicyDto policy) =>
     [
-        new SessionCommand.SetIntervals(policy.IntervalsEnabled),
         new SessionCommand.SetNight(policy.ToNightWindow()),
         new SessionCommand.SetNightEnabled(policy.NightEnabled),
-        // Rule last: it resizes the active phase's countdown to the new rule.
-        new SessionCommand.SetRule(policy.ToScheduleRule())
+        new SessionCommand.SetRule(policy.ToScheduleRule()),
+        // Intervals LAST: it has the final word on the countdown. If intervals are OFF it must
+        // clear TimeRemaining — applying the rule afterwards would wrongly repopulate it, so the
+        // "unlimited" device would still show a leftover time.
+        new SessionCommand.SetIntervals(policy.IntervalsEnabled)
     ];
 
     public async Task ApplyAsync(PolicyDto policy, CancellationToken ct = default)
