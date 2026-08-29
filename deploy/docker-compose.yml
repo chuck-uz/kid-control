@@ -30,6 +30,7 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      TZ: "${TZ:-Asia/Tashkent}"
       ConnectionStrings__Fleet: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-kidcontrol};Username=${POSTGRES_USER:-kidcontrol};Password=${POSTGRES_PASSWORD}"
       FLEET_ADMIN_CHAT_ID: "${FLEET_ADMIN_CHAT_ID:-}"
       FLEET_ADMIN_API_KEY: "${FLEET_ADMIN_API_KEY:-}"
