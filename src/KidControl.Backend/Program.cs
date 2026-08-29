@@ -34,6 +34,9 @@ var botToken = builder.Configuration["Telegram:BotToken"]
     ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
 builder.Services.AddSingleton<Telegram.Bot.ITelegramBotClient>(
     new Telegram.Bot.TelegramBotClient(string.IsNullOrWhiteSpace(botToken) ? "0:DISABLED" : botToken));
+// Screenshot relay (G1): pairs an operator's request with the agent's later upload. Singleton
+// so the bot (which registers requests) and the /agent/media endpoint (which delivers) share it.
+builder.Services.AddSingleton<ScreenshotRelay>();
 builder.Services.AddHostedService<FleetBotBackgroundService>();
 builder.Services.AddHostedService<AlertBackgroundService>();
 
@@ -145,6 +148,25 @@ app.MapPost("/agent/commands/ack", async (CommandAckBatch batch, System.Security
 
     await svc.AckAsync(deviceId.Value, batch, ct);
     return Results.Ok();
+}).RequireAuthorization();
+
+// ── Agent: upload a requested screenshot (G1). Body = raw image bytes; the uploadId ties it to
+// the operator's request, and the relay only accepts it from the device that was asked. ────────
+app.MapPost("/agent/media", async (HttpRequest http, System.Security.Claims.ClaimsPrincipal user,
+    ScreenshotRelay relay, CancellationToken ct) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    var uploadId = http.Query["uploadId"].ToString();
+    if (string.IsNullOrWhiteSpace(uploadId))
+        return Results.BadRequest(new { error = "uploadId is required" });
+
+    using var ms = new MemoryStream();
+    await http.Body.CopyToAsync(ms, ct);
+    var ok = await relay.DeliverAsync(uploadId, deviceId.Value, ms.ToArray(), ct);
+    return ok ? Results.Ok() : Results.NotFound(new { error = "no matching pending screenshot" });
 }).RequireAuthorization();
 
 // ── Operator surface. Temporary (X-Admin-Key), until the bot (T11) owns it. ───────────────

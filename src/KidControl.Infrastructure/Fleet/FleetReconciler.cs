@@ -113,7 +113,9 @@ public sealed class FleetReconciler(
                 continue;
             }
 
-            var (ok, error) = await commandApplier.ApplyAsync(command, ct);
+            // Pass this reconciler's authenticated client so media uploads (screenshot) go out
+            // as this device (a freshly-injected client would be unauthenticated).
+            var (ok, error) = await commandApplier.ApplyAsync(command, client, ct);
             if (ok)
                 processed.Add(command.Id);
             acks.Add(new CommandAckDto(command.Id, ok, error));

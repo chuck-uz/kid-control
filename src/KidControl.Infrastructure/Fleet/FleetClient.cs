@@ -20,6 +20,10 @@ public interface IFleetClient
     Task<HeartbeatResponse?> HeartbeatAsync(HeartbeatRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<CommandDto>> PollCommandsAsync(int waitSeconds, CancellationToken ct = default);
     Task AckCommandsAsync(CommandAckBatch batch, CancellationToken ct = default);
+
+    /// <summary>Upload a requested screenshot (G1). Returns false on any failure — the operator retries.</summary>
+    Task<bool> UploadMediaAsync(string uploadId, byte[] image, CancellationToken ct = default);
+
     void UseToken(string token);
 }
 
@@ -125,6 +129,29 @@ public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger) : 
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "Command ack could not reach the backend; will re-ack later.");
+        }
+    }
+
+    public async Task<bool> UploadMediaAsync(string uploadId, byte[] image, CancellationToken ct = default)
+    {
+        try
+        {
+            using var content = new ByteArrayContent(image);
+            content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            using var resp = await http.PostAsync(
+                $"agent/media?uploadId={Uri.EscapeDataString(uploadId)}", content, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Media upload failed: {Status}", (int)resp.StatusCode);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Media upload could not reach the backend.");
+            return false;
         }
     }
 

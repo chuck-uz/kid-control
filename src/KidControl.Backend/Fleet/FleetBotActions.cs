@@ -132,6 +132,10 @@ public sealed class FleetBotActions(
                $"Целевая: {tracking}";
     }
 
+    public Task<string> RequestScreenshotAsync(Guid deviceId, string uploadId, CancellationToken ct = default)
+        => EnqueueAsync(deviceId, CommandTypes.Screenshot, new() { ["uploadId"] = uploadId },
+            "📷 Запрос отправлен — скриншот придёт, когда устройство онлайн (в течение TTL).", ct);
+
     public Task<string> UpdateNowAsync(Guid deviceId, string? tag, CancellationToken ct = default)
         => EnqueueAsync(deviceId, CommandTypes.UpdateNow,
             string.IsNullOrWhiteSpace(tag) ? null : new() { ["tag"] = tag },

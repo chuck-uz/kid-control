@@ -18,6 +18,7 @@ public sealed class FleetBotBackgroundService(
     ITelegramBotClient bot,
     IServiceScopeFactory scopeFactory,
     IConfiguration config,
+    ScreenshotRelay screenshots,
     ILogger<FleetBotBackgroundService> logger) : BackgroundService
 {
     private bool Enabled => !string.IsNullOrWhiteSpace(BotToken);
@@ -291,6 +292,13 @@ public sealed class FleetBotBackgroundService(
         if (kind == "f") { await OpenFolderAsync(actions, chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
         if (kind == "vtag") { _awaitingTarget[chatId] = deviceId; await Send(chatId, "✏️ Отправьте тег версии одним сообщением (например 2.2.0) или latest:", ct); return; }
+        if (kind == "shot")
+        {
+            var uploadId = Guid.NewGuid().ToString("N");
+            screenshots.Register(uploadId, chatId, deviceId);
+            await Send(chatId, await actions.RequestScreenshotAsync(deviceId, uploadId, ct), ct);
+            return;
+        }
         if (kind == "a") { await Send(chatId, await RunActionAsync(actions, deviceId, tail, ct), ct); return; }
     }
 
@@ -314,7 +322,6 @@ public sealed class FleetBotBackgroundService(
             "bypass" => await a.NightBypassAsync(id, DateTimeOffset.UtcNow.AddHours(10), ct),
             "settarget" => await a.SetTargetVersionAsync(id, tail.ElementAtOrDefault(1) ?? "latest", ct),
             "updatenow" => await a.UpdateNowAsync(id, null, ct),
-            "media" => "📷 Медиа-команды (скриншот/аудио) — Phase 2, появятся позже.",
             _ => "Неизвестное действие."
         };
     }
@@ -344,7 +351,7 @@ public sealed class FleetBotBackgroundService(
                 break;
             case "pc":
                 title = "Компьютер:";
-                kb = new(new[] { new[] { B("📷 Скриншот (Phase 2)", $"a:{id}:media") },
+                kb = new(new[] { new[] { B("📷 Скриншот", $"shot:{id}") },
                                  new[] { B("🔌 Выключить", $"a:{id}:shutdown"), B("🔄 Перезагрузить", $"a:{id}:restart") } });
                 break;
             case "rules":
