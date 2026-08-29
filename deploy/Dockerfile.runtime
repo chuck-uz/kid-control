@@ -1,0 +1,13 @@
+# Thin runtime image: copies PRE-PUBLISHED backend DLLs (framework-dependent, portable IL)
+# onto the amd64 aspnet runtime. No SDK, no restore, no build in the container — so building
+# the amd64 image needs no emulation (COPY is arch-agnostic), only the aspnet base pull.
+#
+#   dotnet publish src/KidControl.Backend -c Release -o ./publish-backend
+#   docker buildx build --platform linux/amd64 -f deploy/Dockerfile.runtime \
+#     -t kidcontrol-backend:amd64 --load .
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY publish-backend/ .
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "KidControl.Backend.dll"]

@@ -16,7 +16,7 @@ public sealed record PolicyPatch(
 
 public sealed record DeviceSummary(
     Guid Id, string Name, string? GroupLabel, DateTimeOffset? LastSeenAt, string? AgentVersion,
-    int PolicyVersion, string? Status, TimeSpan? TimeRemaining);
+    int PolicyVersion, string? Status, TimeSpan? TimeRemaining, bool IsUnlimited = false, bool IsNight = false);
 
 /// <summary>One audit line for the bot's device history.</summary>
 public sealed record AuditEntry(string Action, string Actor, DateTimeOffset At);
@@ -34,7 +34,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
             .OrderBy(d => d.Name)
             .Select(d => new DeviceSummary(
                 d.Id, d.Name, d.GroupLabel, d.LastSeenAt, d.AgentVersion,
-                d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining))
+                d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining,
+                d.Status != null && d.Status.IsUnlimited, d.Status != null && d.Status.IsNight))
             .ToListAsync(ct);
 
     /// <summary>Recent audit lines for a device, newest first.</summary>
@@ -52,7 +53,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
             .Where(d => d.Id == deviceId && !d.Revoked)
             .Select(d => new DeviceSummary(
                 d.Id, d.Name, d.GroupLabel, d.LastSeenAt, d.AgentVersion,
-                d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining))
+                d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining,
+                d.Status != null && d.Status.IsUnlimited, d.Status != null && d.Status.IsNight))
             .FirstOrDefaultAsync(ct);
 
     /// <summary>Give a device a friendly name (max 200 chars). Returns false if unknown/blank.</summary>

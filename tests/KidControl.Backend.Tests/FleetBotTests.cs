@@ -78,6 +78,26 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task Status_shows_unlimited_instead_of_time_when_intervals_off()
+    {
+        await using var db = NewDb();
+        var (actions, ctx, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        // The agent reported unlimited (intervals off) with a leftover time value.
+        ctx.DeviceStatuses.Add(new DeviceStatus
+        {
+            DeviceId = id, Status = "Playing", TimeRemaining = TimeSpan.FromHours(1),
+            IsUnlimited = true, ReportedAt = T0
+        });
+        await ctx.SaveChangesAsync();
+
+        var text = await actions.StatusTextAsync(id);
+        text.Should().Contain("без ограничений");
+        text.Should().NotContain("01:00:00");
+    }
+
+    [Fact]
     public async Task AddTime_enqueues_a_command()
     {
         await using var db = NewDb();

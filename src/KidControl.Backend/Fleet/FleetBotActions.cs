@@ -27,10 +27,13 @@ public sealed class FleetBotActions(
             return "Устройство не найдено.";
 
         var seen = d.LastSeenAt is { } ls ? $"{(DateTimeOffset.UtcNow - ls).TotalMinutes:F0} мин назад" : "никогда";
-        var remaining = d.TimeRemaining is { } tr ? $"{tr:hh\\:mm\\:ss}" : "—";
+        var timeLine = d.IsUnlimited
+            ? "Режим: ♾️ без ограничений (интервалы отключены)"
+            : $"Осталось: {(d.TimeRemaining is { } tr ? $"{tr:hh\\:mm\\:ss}" : "—")}";
+        var night = d.IsNight ? "\n🌙 Сейчас ночной режим" : "";
         return $"📊 {d.Name}\n" +
                $"Статус: {d.Status ?? "нет данных"}\n" +
-               $"Осталось: {remaining}\n" +
+               $"{timeLine}{night}\n" +
                $"Версия агента: {d.AgentVersion ?? "—"}\n" +
                $"Политика: v{d.PolicyVersion}\n" +
                $"На связи: {seen}";
@@ -73,7 +76,8 @@ public sealed class FleetBotActions(
         var lines = list.Select(d =>
         {
             var online = d.LastSeenAt is { } ls && (DateTimeOffset.UtcNow - ls) < TimeSpan.FromMinutes(3) ? "🟢" : "⚪";
-            return $"{online} {d.Name} — {d.Status ?? "?"} ({d.TimeRemaining:hh\\:mm\\:ss})";
+            var time = d.IsUnlimited ? "♾️ без ограничений" : $"{d.TimeRemaining:hh\\:mm\\:ss}";
+            return $"{online} {d.Name} — {d.Status ?? "?"} ({time})";
         });
         return "Все устройства:\n" + string.Join("\n", lines);
     }
