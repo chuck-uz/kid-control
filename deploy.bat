@@ -135,40 +135,43 @@ function Set-OrAdd($obj, $name, $value) {
 # (graceful stop -> disable -> delete), UI process, hardening reg key, install + data dirs.
 # Safe on a clean machine (every step tolerates 'not present').
 function Remove-KidControl {
+    # All external tools are run via `cmd /c "... >nul 2>&1"` so their stderr never becomes a
+    # PowerShell error (with $ErrorActionPreference='Stop', a redirected native stderr can trip
+    # the trap). cmd swallows output in the child; we only see the exit code, which never throws.
     $svc  = 'KidControlService'
     $task = 'KidControl.UiHost.Launch'
     $ui   = 'KidControl.UiHost.exe'
     $inst = Join-Path $env:ProgramFiles 'KidControl'
     $data = Join-Path $env:ProgramData  'KidControl'
-    $regKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KidControl'
+    $regDel = 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KidControl'
 
     Info 'Clean: removing any previous installation'
-    schtasks /Delete /TN $task /F  2>$null | Out-Null
+    cmd /c "schtasks /Delete /TN ""$task"" /F >nul 2>&1"
 
     $existing = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($existing) {
-        cmd /c "sc stop $svc"    2>$null | Out-Null
-        cmd /c "sc config $svc start= disabled" 2>$null | Out-Null
+        cmd /c "sc stop $svc >nul 2>&1"
+        cmd /c "sc config $svc start= disabled >nul 2>&1"
         for ($i = 0; $i -lt 15; $i++) {
             $s = Get-Service -Name $svc -ErrorAction SilentlyContinue
             if (-not $s -or $s.Status -eq 'Stopped') { break }
             Start-Sleep -Seconds 2
         }
-        taskkill /F /IM $ui /T   2>$null | Out-Null
-        cmd /c "sc delete $svc"  2>$null | Out-Null
+        cmd /c "taskkill /F /IM ""$ui"" /T >nul 2>&1"
+        cmd /c "sc delete $svc >nul 2>&1"
         Ok '  service removed'
     } else {
-        taskkill /F /IM $ui /T   2>$null | Out-Null
+        cmd /c "taskkill /F /IM ""$ui"" /T >nul 2>&1"
         Info '  no existing service (ok)'
     }
 
-    reg delete $regKey.Replace('HKLM:\','HKLM\') /f 2>$null | Out-Null
+    cmd /c "reg delete ""$regDel"" /f >nul 2>&1"
 
     foreach ($dir in @($inst, $data)) {
         if (Test-Path $dir) {
-            takeown /F $dir /R /D Y                         2>$null | Out-Null
-            icacls  $dir /reset /T /C /Q                    2>$null | Out-Null
-            icacls  $dir /grant '*S-1-5-32-544:(OI)(CI)F' /T /C /Q 2>$null | Out-Null
+            cmd /c "takeown /F ""$dir"" /R /D Y >nul 2>&1"
+            cmd /c "icacls ""$dir"" /reset /T /C /Q >nul 2>&1"
+            cmd /c "icacls ""$dir"" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
             if (Test-Path $dir) { Write-Host "  WARNING: could not fully remove $dir (reboot + retry)" -ForegroundColor Yellow }
             else { Ok "  removed $dir" }
