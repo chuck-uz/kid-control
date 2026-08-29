@@ -8,12 +8,11 @@ using TgUpdate = Telegram.Bot.Types.Update;
 namespace KidControl.Backend.Fleet;
 
 /// <summary>
-/// The fleet operator bot, hosted inside the backend (T11). Long-polls Telegram; the top level
-/// is the device list, selecting a device opens the familiar folder menu (📊/➕/🎮/💻/⚙️/🌙/📦/👤)
-/// bound to that device, and every action runs through the fleet services (policy/desired edits
-/// and the command queue) via <see cref="FleetBotActions"/>. Media buttons are labelled Phase 2.
-/// Non-admin chats are ignored; a per-chat selection is remembered but the device id is also
-/// carried in every callback so a bot restart doesn't strand a menu.
+/// The fleet operator bot, hosted inside the backend. Long-polls Telegram. You pick a device
+/// ONCE (🔀 Устройства → the inline list); it stays selected per chat, and the persistent bottom
+/// keyboard (📊/➕/🎮/💻/⚙️/🌙/📦/…) then acts on that device until you switch. Folder buttons open
+/// small inline sub-menus whose actions carry the device id, so they survive a bot restart. All
+/// side effects go through the fleet services via <see cref="FleetBotActions"/>.
 /// </summary>
 public sealed class FleetBotBackgroundService(
     ITelegramBotClient bot,
@@ -24,11 +23,26 @@ public sealed class FleetBotBackgroundService(
     private bool Enabled => !string.IsNullOrWhiteSpace(BotToken);
     private string? BotToken => config["Telegram:BotToken"] ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
 
-    // chatId -> deviceId awaiting a new name (the operator's next text message is the name).
+    // Per-chat state: the currently selected device, and (transiently) a device awaiting a rename.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _selected = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRename = new();
 
-    // Chats whose stale reply keyboard (left over from the old standalone bot) we've cleared.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, byte> _kbCleared = new();
+    // ── Bottom (persistent) keyboard — the control folders ────────────────────
+    private const string BtnStatus = "📊 Статус", BtnTime = "➕ Время", BtnApp = "🎮 Приложение",
+        BtnPc = "💻 Компьютер", BtnRules = "⚙️ Интервалы", BtnNight = "🌙 Ночь", BtnVer = "📦 Версия",
+        BtnHistory = "🧾 История", BtnName = "✏️ Имя", BtnRevoke = "🗑️ Отозвать",
+        BtnSwitch = "🔀 Устройства", BtnAdmins = "👤 Админы";
+
+    private static readonly ReplyKeyboardMarkup MainKeyboard = new(new[]
+    {
+        new KeyboardButton[] { BtnStatus, BtnTime },
+        new KeyboardButton[] { BtnApp, BtnPc },
+        new KeyboardButton[] { BtnRules, BtnNight },
+        new KeyboardButton[] { BtnVer, BtnHistory },
+        new KeyboardButton[] { BtnName, BtnRevoke },
+        new KeyboardButton[] { BtnSwitch, BtnAdmins },
+    })
+    { ResizeKeyboard = true };
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -110,23 +124,18 @@ public sealed class FleetBotBackgroundService(
             return;
         }
 
-        // Kill the stale reply keyboard left by the old standalone bot (once per chat).
-        await EnsureKeyboardClearedAsync(chatId, ct);
-
         // Awaiting a new device name? The next non-command message is the name.
         if (_awaitingRename.TryRemove(chatId, out var renameId))
         {
-            if (t.StartsWith('/'))
-            {
-                await Send(chatId, "Переименование отменено.", ct);
-            }
-            else
+            if (!t.StartsWith('/') && !IsKeyboardButton(t))
             {
                 await Send(chatId, await actions.RenameAsync(renameId, t, ct), ct);
                 return;
             }
+            await Send(chatId, "Переименование отменено.", ct);
         }
 
+        // ── Global commands (not device-scoped) ──
         if (t.StartsWith("/addadmin", StringComparison.OrdinalIgnoreCase))
         {
             await Send(chatId, await AdminChangeAsync(actions, t, add: true, ct), ct);
@@ -137,25 +146,42 @@ public sealed class FleetBotBackgroundService(
             await Send(chatId, await AdminChangeAsync(actions, t, add: false, ct), ct);
             return;
         }
-        if (t is "/admins" or "👤 Админы")
+        if (t is "/admins" or BtnAdmins) { await Send(chatId, await actions.AdminsTextAsync(ct), ct); return; }
+        if (t is "/enroll") { await SendHtml(chatId, await actions.NewEnrollCodeAsync(ct), ct); return; }
+        if (t is "/all") { await Send(chatId, await actions.OverviewTextAsync(ct), ct); return; }
+        if (t is "/start" or "/menu" or BtnSwitch) { await ShowDeviceListAsync(actions, chatId, ct); return; }
+
+        // ── Device-scoped folders (operate on the selected device) ──
+        if (IsKeyboardButton(t))
         {
-            await Send(chatId, await actions.AdminsTextAsync(ct), ct);
-            return;
-        }
-        if (t is "/enroll")
-        {
-            await SendHtml(chatId, await actions.NewEnrollCodeAsync(ct), ct);
-            return;
-        }
-        if (t is "/all")
-        {
-            await Send(chatId, await actions.OverviewTextAsync(ct), ct);
-            return;
+            if (!_selected.TryGetValue(chatId, out var id))
+            {
+                await Send(chatId, "Сначала выберите устройство:", ct);
+                await ShowDeviceListAsync(actions, chatId, ct);
+                return;
+            }
+
+            switch (t)
+            {
+                case BtnStatus: await OpenFolderAsync(actions, chatId, id, "status", ct); return;
+                case BtnTime: await OpenFolderAsync(actions, chatId, id, "time", ct); return;
+                case BtnApp: await OpenFolderAsync(actions, chatId, id, "app", ct); return;
+                case BtnPc: await OpenFolderAsync(actions, chatId, id, "pc", ct); return;
+                case BtnRules: await OpenFolderAsync(actions, chatId, id, "rules", ct); return;
+                case BtnNight: await OpenFolderAsync(actions, chatId, id, "night", ct); return;
+                case BtnVer: await OpenFolderAsync(actions, chatId, id, "ver", ct); return;
+                case BtnHistory: await Send(chatId, await actions.HistoryTextAsync(id, ct), ct); return;
+                case BtnName: _awaitingRename[chatId] = id; await Send(chatId, "✏️ Отправьте новое имя устройства одним сообщением:", ct); return;
+                case BtnRevoke: await ShowConfirmAsync(chatId, id, "Отозвать устройство?", $"rvok:{id}", ct); return;
+            }
         }
 
-        // Default: show the device list (the top level).
+        // Anything else → the device list.
         await ShowDeviceListAsync(actions, chatId, ct);
     }
+
+    private static bool IsKeyboardButton(string t) => t is BtnStatus or BtnTime or BtnApp or BtnPc
+        or BtnRules or BtnNight or BtnVer or BtnHistory or BtnName or BtnRevoke or BtnSwitch or BtnAdmins;
 
     private async Task ShowDeviceListAsync(FleetBotActions actions, long chatId, CancellationToken ct)
     {
@@ -183,6 +209,14 @@ public sealed class FleetBotBackgroundService(
         return $"{online} {d.Name} — {d.Status ?? "?"}";
     }
 
+    /// <summary>Select a device for this chat and show its status with the persistent control keyboard.</summary>
+    private async Task SelectDeviceAsync(FleetBotActions actions, long chatId, Guid id, CancellationToken ct)
+    {
+        _selected[chatId] = id;
+        var status = await actions.StatusTextAsync(id, ct);
+        await bot.SendMessage(chatId, "✅ Выбрано устройство.\n\n" + status, replyMarkup: MainKeyboard, cancellationToken: ct);
+    }
+
     // ── Callbacks ────────────────────────────────────────────────────────────
     private async Task HandleCallbackAsync(FleetBotActions actions, CallbackQuery cb, CancellationToken ct)
     {
@@ -196,7 +230,6 @@ public sealed class FleetBotBackgroundService(
         var data = cb.Data ?? "";
         await bot.AnswerCallbackQuery(cb.Id, cancellationToken: ct);
 
-        // Non device-scoped.
         switch (data)
         {
             case "home": await ShowDeviceListAsync(actions, chatId, ct); return;
@@ -211,11 +244,8 @@ public sealed class FleetBotBackgroundService(
         var kind = parts[0];
         var tail = parts.Skip(2).ToArray();
 
-        if (kind == "nav") { await ShowDeviceMenuAsync(chatId, deviceId, await actions.StatusTextAsync(deviceId, ct), ct); return; }
-        if (kind == "f") { await ShowFolderAsync(chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
-        if (kind == "hist") { await Send(chatId, await actions.HistoryTextAsync(deviceId, ct), ct); return; }
-        if (kind == "rn") { _awaitingRename[chatId] = deviceId; await Send(chatId, "✏️ Отправьте новое имя устройства одним сообщением:", ct); return; }
-        if (kind == "rv") { await ShowConfirmAsync(chatId, deviceId, "Отозвать устройство?", $"rvok:{deviceId}", ct); return; }
+        if (kind == "nav") { await SelectDeviceAsync(actions, chatId, deviceId, ct); return; }
+        if (kind == "f") { await OpenFolderAsync(actions, chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
         if (kind == "a") { await Send(chatId, await RunActionAsync(actions, deviceId, tail, ct), ct); return; }
     }
@@ -244,70 +274,53 @@ public sealed class FleetBotBackgroundService(
         };
     }
 
-    // ── Keyboards ────────────────────────────────────────────────────────────
-    private async Task ShowDeviceMenuAsync(long chatId, Guid id, string statusText, CancellationToken ct)
+    // ── Folder sub-menus (inline, scoped to the device) ───────────────────────
+    private async Task OpenFolderAsync(FleetBotActions actions, long chatId, Guid id, string folder, CancellationToken ct)
     {
         InlineKeyboardButton B(string label, string action) => InlineKeyboardButton.WithCallbackData(label, action);
-        var kb = new InlineKeyboardMarkup(new[]
-        {
-            new[] { B("📊 Статус", $"f:{id}:status"), B("➕ Время", $"f:{id}:time") },
-            new[] { B("🎮 Приложение", $"f:{id}:app"), B("💻 Компьютер", $"f:{id}:pc") },
-            new[] { B("⚙️ Интервалы", $"f:{id}:rules"), B("🌙 Ночь", $"f:{id}:night") },
-            new[] { B("📦 Версия", $"f:{id}:ver"), B("🧾 История", $"hist:{id}") },
-            new[] { B("✏️ Имя", $"rn:{id}"), B("👤 Админы", "adm") },
-            new[] { B("🗑️ Отозвать", $"rv:{id}"), B("⬅️ Устройства", "home") }
-        });
-        await bot.SendMessage(chatId, statusText, replyMarkup: kb, cancellationToken: ct);
-    }
-
-    private async Task ShowFolderAsync(long chatId, Guid id, string folder, CancellationToken ct)
-    {
-        InlineKeyboardButton B(string label, string action) => InlineKeyboardButton.WithCallbackData(label, action);
-        var back = new[] { B("⬅️ Меню", $"nav:{id}") };
 
         InlineKeyboardMarkup kb;
         string title;
         switch (folder)
         {
             case "status":
-                title = "Управление статусом:";
+                title = await actions.StatusTextAsync(id, ct);
                 kb = new(new[] { new[] { B("🚫 Блок", $"a:{id}:block"), B("✅ Разблок", $"a:{id}:unblock") },
-                                 new[] { B("🔄 Сбросить таймер", $"a:{id}:reset") }, back });
+                                 new[] { B("🔄 Сбросить таймер", $"a:{id}:reset") } });
                 break;
             case "time":
                 title = "Добавить время:";
                 kb = new(new[] { new[] { B("+15", $"a:{id}:addtime:15"), B("+30", $"a:{id}:addtime:30") },
-                                 new[] { B("+60", $"a:{id}:addtime:60"), B("+120", $"a:{id}:addtime:120") }, back });
+                                 new[] { B("+60", $"a:{id}:addtime:60"), B("+120", $"a:{id}:addtime:120") } });
                 break;
             case "app":
                 title = "Контроль:";
-                kb = new(new[] { new[] { B("⏸️ Пауза", $"a:{id}:pause"), B("▶️ Продолжить", $"a:{id}:resume") }, back });
+                kb = new(new[] { new[] { B("⏸️ Пауза", $"a:{id}:pause"), B("▶️ Продолжить", $"a:{id}:resume") } });
                 break;
             case "pc":
                 title = "Компьютер:";
                 kb = new(new[] { new[] { B("📷 Скриншот (Phase 2)", $"a:{id}:media") },
-                                 new[] { B("🔌 Выключить", $"a:{id}:shutdown"), B("🔄 Перезагрузить", $"a:{id}:restart") }, back });
+                                 new[] { B("🔌 Выключить", $"a:{id}:shutdown"), B("🔄 Перезагрузить", $"a:{id}:restart") } });
                 break;
             case "rules":
                 title = "Режим (игра/отдых):";
                 kb = new(new[] { new[] { B("60/15", $"a:{id}:setrule:60:15"), B("45/15", $"a:{id}:setrule:45:15") },
                                  new[] { B("40/20", $"a:{id}:setrule:40:20"), B("30/10", $"a:{id}:setrule:30:10") },
-                                 new[] { B("♾️ Откл", $"a:{id}:intervals:off"), B("✅ Вкл", $"a:{id}:intervals:on") }, back });
+                                 new[] { B("♾️ Откл интервалы", $"a:{id}:intervals:off"), B("✅ Вкл", $"a:{id}:intervals:on") } });
                 break;
             case "night":
                 title = "Ночной режим:";
                 kb = new(new[] { new[] { B("🌙 Вкл", $"a:{id}:night:on"), B("🔕 Выкл", $"a:{id}:night:off") },
                                  new[] { B("22:00-07:00", $"a:{id}:nightwin:2200:0700"), B("23:00-06:00", $"a:{id}:nightwin:2300:0600") },
-                                 new[] { B("🌙 Снять ночь на сегодня", $"a:{id}:bypass") }, back });
+                                 new[] { B("🌙 Снять ночь на сегодня", $"a:{id}:bypass") } });
                 break;
             case "ver":
                 title = "Версия / обновление:";
-                kb = new(new[] { new[] { B("⬇️ Обновить сейчас", $"a:{id}:updatenow") }, back });
+                kb = new(new[] { new[] { B("⬇️ Обновить сейчас", $"a:{id}:updatenow") } });
                 break;
             default:
-                title = "Меню:";
-                kb = new(new[] { back });
-                break;
+                await SelectDeviceAsync(actions, chatId, id, ct);
+                return;
         }
         await bot.SendMessage(chatId, title, replyMarkup: kb, cancellationToken: ct);
     }
@@ -339,21 +352,6 @@ public sealed class FleetBotBackgroundService(
         var s = tail.ElementAtOrDefault(idx) ?? "0000";
         return s.Length == 4 && int.TryParse(s[..2], out var h) && int.TryParse(s[2..], out var m)
             ? new TimeSpan(h, m, 0) : TimeSpan.Zero;
-    }
-
-    private async Task EnsureKeyboardClearedAsync(long chatId, CancellationToken ct)
-    {
-        if (!_kbCleared.TryAdd(chatId, 0))
-            return;
-        try
-        {
-            await bot.SendMessage(chatId, "🔄 Меню обновлено — используйте кнопки под сообщениями.",
-                replyMarkup: new ReplyKeyboardRemove(), cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Could not clear reply keyboard for {ChatId}.", chatId);
-        }
     }
 
     private Task Send(long chatId, string text, CancellationToken ct)
