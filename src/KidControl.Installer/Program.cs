@@ -21,6 +21,7 @@ internal static class Program
     {
         var silent = HasFlag(args, "/silent");
         var update = HasFlag(args, "/update");
+        var enroll = HasFlag(args, "/enroll");
 
         if (silent || update)
         {
@@ -45,7 +46,8 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new InstallerForm());
+        // /enroll opens the post-install "bind to server" dialog (managed mode).
+        Application.Run(enroll ? new EnrollForm() : new InstallerForm());
         return 0;
     }
 

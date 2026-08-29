@@ -23,7 +23,7 @@ set "KC_REPO=kid-control"
 rem  Which release to install. A pinned tag installs exactly that version (recommended,
 rem  and avoids the rate-limited GitHub API entirely). Empty = latest (needs the
 rem  fixed-name KidControl-Setup.zip asset on the release).
-set "KC_TAG=v2.1.1"
+set "KC_TAG=v2.1.2"
 
 rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo').
 rem  Empty for a public repo.
@@ -338,6 +338,12 @@ if ($svcState -ne 'Running') {
     try { (Get-Service 'KidControlService').WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) } catch { }
 }
 Ok ("Service status: " + (Get-Service -Name 'KidControlService' -ErrorAction SilentlyContinue).Status)
+
+# ---- 7. Managed mode without a code: open the enrollment window -----------
+if ((-not [string]::IsNullOrWhiteSpace($env:KC_BACKEND_URL)) -and [string]::IsNullOrWhiteSpace($env:KC_ENROLL_CODE)) {
+    Info 'Opening the enrollment window - enter the code from the bot (/enroll)'
+    try { Start-Process -FilePath $installerPath -ArgumentList '/enroll' -Wait } catch { Write-Host "Could not open the enrollment window: $($_.Exception.Message)" -ForegroundColor Yellow }
+}
 
 Ok ("KidControl " + $rel.tag_name + " installed successfully.")
 try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
