@@ -35,7 +35,6 @@ public sealed class FleetBotActions(
                $"Статус: {d.Status ?? "нет данных"}\n" +
                $"{timeLine}{night}\n" +
                $"Версия агента: {d.AgentVersion ?? "—"}\n" +
-               $"Политика: v{d.PolicyVersion}\n" +
                $"На связи: {seen}";
     }
 
