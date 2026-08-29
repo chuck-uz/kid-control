@@ -32,7 +32,7 @@ pwsh -File setup-signing.ps1 -Repo chuck-uz/kid-control
 
 ## 1. Pre-flight (перед каждым релизом)
 
-- [ ] Код влит в ветку `v2` (или откуда релизишь), **CI зелёный** (build + tests на windows-latest).
+- [ ] Код влит в ветку `main` (дефолтная, единая рабочая ветка), **CI зелёный** (build + tests на windows-latest).
 - [ ] Обновлены `docs/` / `REWRITE-NOTES.md`, если менялось поведение.
 - [ ] В индексе **нет реального `appsettings.json`** (только `appsettings.template.json`; `.gitignore` это ловит).
 - [ ] Версию руками не бампаешь — её даёт **MinVer из тега** (`MinVerTagPrefix=v`).
@@ -40,7 +40,7 @@ pwsh -File setup-signing.ps1 -Repo chuck-uz/kid-control
 
 ## 2. Тегирование и запуск
 
-- [ ] Встань на нужный коммит: `git checkout v2 && git pull`.
+- [ ] Встань на нужный коммит: `git checkout main && git pull`.
 - [ ] Поставь **аннотированный** тег на этот коммит:
       ```bash
       git tag -a v2.0.0 -m "KidControl 2.0.0"
