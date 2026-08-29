@@ -117,6 +117,31 @@ public sealed class Session
         }
     }
 
+    /// <summary>
+    /// Applies time that passed while the computer was OFF or asleep. By design this advances
+    /// ONLY a rest/break — play time is never consumed while the machine isn't in use. If the
+    /// break fully elapses offline, the session lands on a fresh play phase (and the leftover
+    /// offline time is NOT then spent burning that play, so at most one rest→play transition
+    /// happens per offline gap). Play, blocks, pause and night are left untouched.
+    /// </summary>
+    public void ApplyOfflineRest(TimeSpan offline)
+    {
+        if (offline <= TimeSpan.Zero || !IntervalsEnabled || Status != SessionStatus.Resting)
+        {
+            return;
+        }
+
+        if (offline >= TimeRemaining)
+        {
+            Status = SessionStatus.Playing;
+            TimeRemaining = Rule.PlayDuration;
+        }
+        else
+        {
+            TimeRemaining -= offline;
+        }
+    }
+
     public void AddTime(TimeSpan time)
     {
         if (time < TimeSpan.Zero)

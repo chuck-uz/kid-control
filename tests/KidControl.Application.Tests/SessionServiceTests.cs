@@ -5,6 +5,7 @@ using KidControl.Application.Models;
 using KidControl.Application.Services;
 using KidControl.Application.Tests.Fakes;
 using KidControl.Contracts;
+using KidControl.Domain.Enums;
 using KidControl.Domain.ValueObjects;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -208,5 +209,94 @@ public sealed class SessionServiceTests
         _clock.SetLocal(new DateTimeOffset(2026, 1, 1, 23, 30, 0, TimeSpan.Zero));
 
         svc.IsNightActiveNow().Should().BeTrue();
+    }
+
+    // ─── Off/asleep time: only a break advances; play never burns while off ──
+
+    private void SeedSnapshot(SessionStatus status, TimeSpan remaining, DateTimeOffset lastUpdated)
+        => _store.Setup(s => s.Load()).Returns(new SessionSnapshot
+        {
+            Status = status,
+            TimeRemaining = remaining,
+            LastUpdated = lastUpdated,
+            PlayMinutes = 40,
+            RestMinutes = 20,
+            NightStart = TimeSpan.FromHours(22),
+            NightEnd = TimeSpan.FromHours(7),
+            IntervalsEnabled = true,
+            NightEnabled = true
+        });
+
+    [Fact]
+    public void BootAfterOff_MidPlay_SameDay_KeepsPlayTimeFrozen()
+    {
+        // Off from 08:00 to 12:00 (same day, no night crossing) while mid-play.
+        SeedSnapshot(SessionStatus.Playing, TimeSpan.FromMinutes(20),
+            new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero));
+        _clock.SetAll(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+
+        var state = Build().GetCurrentState();
+
+        state.Status.Should().Be("Playing");
+        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(20)); // not consumed while off
+    }
+
+    [Fact]
+    public void BootAfterOff_MidRest_AdvancesRestByRealElapsed()
+    {
+        // Off for 8 minutes while resting (20 left) → 12 left, still resting.
+        SeedSnapshot(SessionStatus.Resting, TimeSpan.FromMinutes(20),
+            new DateTimeOffset(2026, 1, 1, 11, 52, 0, TimeSpan.Zero));
+        _clock.SetAll(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+
+        var state = Build().GetCurrentState();
+
+        state.Status.Should().Be("Resting");
+        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(12));
+    }
+
+    [Fact]
+    public void BootAfterOff_MidRest_LongOff_StartsFreshPlay()
+    {
+        // Off from 08:00 to 12:00 while resting (10 left) → rest long over → fresh play.
+        SeedSnapshot(SessionStatus.Resting, TimeSpan.FromMinutes(10),
+            new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero));
+        _clock.SetAll(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+
+        var state = Build().GetCurrentState();
+
+        state.Status.Should().Be("Playing");
+        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(40)); // fresh, not burned down
+    }
+
+    [Fact]
+    public void BootAfterNight_MidPlay_StartsFreshPlay()
+    {
+        // Shut down mid-play the previous evening (20:00), booted next morning after night (09:00).
+        SeedSnapshot(SessionStatus.Playing, TimeSpan.FromMinutes(15),
+            new DateTimeOffset(2025, 12, 31, 20, 0, 0, TimeSpan.Zero));
+        _clock.SetAll(new DateTimeOffset(2026, 1, 1, 9, 0, 0, TimeSpan.Zero));
+
+        var state = Build().GetCurrentState();
+
+        state.Status.Should().Be("Playing");
+        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(40)); // new day → fresh full play
+    }
+
+    [Fact]
+    public async Task Suspend_MidRest_WhileRunning_AdvancesRest()
+    {
+        // Resting with 20 left; the PC sleeps for 30 min, then a tick fires on resume.
+        SeedSnapshot(SessionStatus.Resting, TimeSpan.FromMinutes(20),
+            new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        _clock.SetAll(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
+        var svc = Build();
+
+        _clock.Advance(TimeSpan.FromMinutes(30)); // slept
+        await svc.ProcessTickAsync();
+
+        var state = svc.GetCurrentState();
+        state.Status.Should().Be("Playing"); // 30 > 20 → rest done → fresh play
+        state.TimeRemaining.Should().Be(TimeSpan.FromMinutes(40));
     }
 }
