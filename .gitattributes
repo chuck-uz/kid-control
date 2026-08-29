@@ -12,3 +12,4 @@
 # source-zip that deploy.bat downloads always deliver CRLF.
 *.bat -text
 *.cmd -text
+graphify-out/graph.json merge=graphify
