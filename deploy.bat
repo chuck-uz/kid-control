@@ -48,10 +48,12 @@ set "KC_BACKEND_URL=https://kidcontrol.oresh.in"
 set "KC_ENROLL_CODE="
 
 rem  Self-update settings written after install:
+rem    KC_AUTOINSTALL       = true to auto-install newer releases (detached, crash-safe path)
 rem    KC_REQUIRE_SIGNATURE = false to accept unsigned releases (public-repo auto-update)
 rem    KC_CHECK_INTERVAL    = poll period HH:MM:SS (not 1 min -> GitHub 60/hr limit)
 rem    KC_THUMBPRINT        = SHA-256 thumbprint for signed self-update (optional)
 rem    KC_CERT_FILE         = public .cer to trust (only for signed self-update)
+set "KC_AUTOINSTALL=true"
 set "KC_REQUIRE_SIGNATURE=false"
 set "KC_CHECK_INTERVAL=00:15:00"
 set "KC_THUMBPRINT="
@@ -296,18 +298,22 @@ if ([string]::IsNullOrWhiteSpace($botToken)) {
 }
 
 # ---- 5. Apply self-update + managed (Fleet) settings into appsettings ----
+$applyAuto     = -not [string]::IsNullOrWhiteSpace($env:KC_AUTOINSTALL)
 $applyThumb    = -not [string]::IsNullOrWhiteSpace($env:KC_THUMBPRINT)
 $applyReq      = -not [string]::IsNullOrWhiteSpace($env:KC_REQUIRE_SIGNATURE)
 $applyTok      = -not [string]::IsNullOrWhiteSpace($token)
 $applyInterval = -not [string]::IsNullOrWhiteSpace($env:KC_CHECK_INTERVAL)
 $applyFleet    = -not [string]::IsNullOrWhiteSpace($env:KC_BACKEND_URL)
-if ($applyThumb -or $applyReq -or $applyTok -or $applyInterval -or $applyFleet) {
+if ($applyAuto -or $applyThumb -or $applyReq -or $applyTok -or $applyInterval -or $applyFleet) {
     $cfgPath = Join-Path $env:ProgramData 'KidControl\appsettings.json'
     if (Test-Path $cfgPath) {
         $json = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Json
         if (-not ($json.PSObject.Properties.Name -contains 'Update')) {
             $json | Add-Member -NotePropertyName Update -NotePropertyValue ([pscustomobject]@{})
         }
+        # AutoInstall is written into the ProgramData override so it survives binary-only
+        # updates (which do not recopy the baked appsettings.json).
+        if ($applyAuto)     { Set-OrAdd $json.Update 'AutoInstall' ($env:KC_AUTOINSTALL -match '^(true|1|yes)$') }
         if ($applyThumb)    { Set-OrAdd $json.Update 'TrustedThumbprint' $env:KC_THUMBPRINT }
         if ($applyReq)      { Set-OrAdd $json.Update 'RequireSignature' ($env:KC_REQUIRE_SIGNATURE -match '^(true|1|yes)$') }
         if ($applyTok)      { Set-OrAdd $json.Update 'GitHubToken' $token }
