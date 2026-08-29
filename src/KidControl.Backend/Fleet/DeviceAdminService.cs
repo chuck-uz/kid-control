@@ -42,6 +42,31 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
                 d.Policy!.Version, d.Status!.Status, d.Status.TimeRemaining))
             .FirstOrDefaultAsync(ct);
 
+    /// <summary>Give a device a friendly name (max 200 chars). Returns false if unknown/blank.</summary>
+    public async Task<bool> RenameAsync(Guid deviceId, string name, string actor = "operator",
+        CancellationToken ct = default)
+    {
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0)
+            return false;
+        if (trimmed.Length > 200)
+            trimmed = trimmed[..200];
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.Id == deviceId && !d.Revoked, ct);
+        if (device is null)
+            return false;
+
+        device.Name = trimmed;
+        db.Audits.Add(new Audit
+        {
+            TenantId = Tenant.DefaultId, Actor = actor, Action = "device.rename",
+            DeviceId = deviceId, DetailJson = $"{{\"name\":{System.Text.Json.JsonSerializer.Serialize(trimmed)}}}",
+            At = clock.GetUtcNow()
+        });
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
     /// <summary>Revoke a device (cuts its token off) without deleting its history.</summary>
     public async Task<bool> RevokeAsync(Guid deviceId, string actor = "operator", CancellationToken ct = default)
     {

@@ -120,6 +120,30 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task Rename_changes_the_device_name()
+    {
+        await using var db = NewDb();
+        var (actions, ctx, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        (await actions.RenameAsync(id, "  ПК Ромы  ")).Should().Contain("ПК Ромы");
+        (await ctx.Devices.FindAsync(id))!.Name.Should().Be("ПК Ромы");
+
+        (await actions.ListDevicesAsync()).Single(d => d.Id == id).Name.Should().Be("ПК Ромы");
+    }
+
+    [Fact]
+    public async Task Rename_rejects_blank_and_unknown()
+    {
+        await using var db = NewDb();
+        var (actions, _, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        (await actions.RenameAsync(id, "   ")).Should().Contain("Не удалось");
+        (await actions.RenameAsync(Guid.NewGuid(), "X")).Should().Contain("Не удалось");
+    }
+
+    [Fact]
     public async Task New_enroll_code_is_issued()
     {
         await using var db = NewDb();

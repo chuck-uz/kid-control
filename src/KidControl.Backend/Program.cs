@@ -182,6 +182,15 @@ app.MapPost("/admin/devices/{id:guid}/pause", async (Guid id, PauseRequest body,
     return version is null ? Results.NotFound() : Results.Ok(new { desiredVersion = version, paused = body.Paused });
 });
 
+// Rename a device (friendly name shown in the bot).
+app.MapPost("/admin/devices/{id:guid}/name", async (Guid id, RenameRequest body, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var ok = await svc.RenameAsync(id, body.Name ?? "", ct: ct);
+    return ok ? Results.Ok(new { name = body.Name?.Trim() }) : Results.NotFound();
+});
+
 // Force-block / release a device (desired-state override).
 app.MapPost("/admin/devices/{id:guid}/block", async (Guid id, BlockRequest body, HttpRequest http,
     IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
