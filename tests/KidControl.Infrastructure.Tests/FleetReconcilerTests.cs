@@ -74,7 +74,20 @@ public class FleetReconcilerTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> UploadMediaAsync(string uploadId, byte[] image, CancellationToken ct = default)
+        {
+            Calls.Add("media");
+            return Task.FromResult(true);
+        }
+
         public void UseToken(string token) => Token = token;
+    }
+
+    /// <summary>No interactive UI in these tests — capture always "fails" (returns null).</summary>
+    private sealed class NoUi : KidControl.Infrastructure.Ipc.IUiCommandClient
+    {
+        public Task<string?> CaptureScreenshotAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<bool> PlayAudioAsync(string audioPath, CancellationToken ct = default) => Task.FromResult(false);
     }
 
     // ── Harness ──────────────────────────────────────────────────────────────
@@ -110,7 +123,7 @@ public class FleetReconcilerTests
             new FleetPolicyApplier(session, new FleetUpdateTarget(), NullLogger<FleetPolicyApplier>.Instance),
             new FleetDesiredApplier(session, NullLogger<FleetDesiredApplier>.Instance),
             new FleetCommandApplier(session, new FakeUpdateService(), new FleetUpdateTarget(),
-                NullLogger<FleetCommandApplier>.Instance),
+                new NoUi(), NullLogger<FleetCommandApplier>.Instance),
             session,
             new AgentInfo("KID-PC", "Windows 11", "2.0.11"),
             new TimeProviderClock(clock),

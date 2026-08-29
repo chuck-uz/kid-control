@@ -6,12 +6,26 @@ using Microsoft.Extensions.Logging;
 namespace KidControl.Infrastructure.Ipc;
 
 /// <summary>
+/// Asks the interactive-session UI to capture a screenshot or play audio. An interface so the
+/// fleet command applier can be unit-tested without a real pipe (and without the Windows-only
+/// concrete client), and so callers aren't coupled to the platform-specific implementation.
+/// </summary>
+public interface IUiCommandClient
+{
+    /// <summary>Capture the screen; returns the PNG file path on success, else null.</summary>
+    Task<string?> CaptureScreenshotAsync(CancellationToken ct = default);
+
+    /// <summary>Play an audio file in the interactive session. Returns true on success.</summary>
+    Task<bool> PlayAudioAsync(string audioPath, CancellationToken ct = default);
+}
+
+/// <summary>
 /// Service-side client for the UI command pipe. Asks the interactive-session UI process to
 /// capture a screenshot or play an audio file — things the SYSTEM service cannot do itself.
 /// Best-effort: any failure (UI not running, timeout) returns null/false rather than throwing.
 /// </summary>
 [SupportedOSPlatform("windows")]
-public sealed class UiCommandClient(ILogger<UiCommandClient> logger)
+public sealed class UiCommandClient(ILogger<UiCommandClient> logger) : IUiCommandClient
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);

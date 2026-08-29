@@ -73,6 +73,7 @@ public static class InfrastructureModule
 
         // Service -> UI command channel (screenshots, audio playback).
         services.AddSingleton<UiCommandClient>();
+        services.AddSingleton<Ipc.IUiCommandClient>(sp => sp.GetRequiredService<UiCommandClient>());
 
         // Windows self-protection helpers.
         services.AddSingleton<ProcessWatchdog>();

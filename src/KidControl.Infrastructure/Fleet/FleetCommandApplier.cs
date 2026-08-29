@@ -17,6 +17,7 @@ public sealed class FleetCommandApplier(
     SessionService session,
     IUpdateService update,
     FleetUpdateTarget updateTarget,
+    Ipc.IUiCommandClient uiCommands,
     ILogger<FleetCommandApplier> logger)
 {
     /// <summary>Pure mapping of a command to a session command, or null if it isn't one.</summary>
@@ -30,7 +31,8 @@ public sealed class FleetCommandApplier(
         _ => null
     };
 
-    public async Task<(bool Ok, string? Error)> ApplyAsync(CommandDto command, CancellationToken ct = default)
+    public async Task<(bool Ok, string? Error)> ApplyAsync(CommandDto command, IFleetClient fleet,
+        CancellationToken ct = default)
     {
         try
         {
@@ -39,8 +41,10 @@ public sealed class FleetCommandApplier(
                 case CommandTypes.UpdateNow:
                     return await ApplyUpdateNowAsync(command, ct);
 
-                // Phase 2 (media relay): acked so they don't redeliver, but not executed yet.
                 case CommandTypes.Screenshot:
+                    return await ApplyScreenshotAsync(command, fleet, ct);
+
+                // Audio playback is still Phase 2 (G2): acked so it doesn't redeliver.
                 case CommandTypes.PlayAudio:
                     logger.LogInformation("Fleet command {Type} ({Id}) is Phase 2 — acked, not executed.",
                         command.Type, command.Id);
@@ -59,6 +63,35 @@ public sealed class FleetCommandApplier(
         {
             logger.LogWarning(ex, "Command {Type} ({Id}) failed.", command.Type, command.Id);
             return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Capture the screen (via the interactive-session UI) and upload it to the backend, which
+    /// relays it to the operator who asked. The uploadId ties the image to that request.
+    /// </summary>
+    private async Task<(bool Ok, string? Error)> ApplyScreenshotAsync(CommandDto command, IFleetClient fleet,
+        CancellationToken ct)
+    {
+        var uploadId = command.GetString("uploadId");
+        if (string.IsNullOrWhiteSpace(uploadId))
+            return (false, "screenshot: missing uploadId");
+
+        var path = await uiCommands.CaptureScreenshotAsync(ct).ConfigureAwait(false);
+        if (path is null)
+            return (false, "screenshot: capture failed (UI not running?)");
+
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+            var ok = await fleet.UploadMediaAsync(uploadId, bytes, ct).ConfigureAwait(false);
+            logger.LogInformation("Fleet screenshot ({Id}): {Bytes} bytes, upload {Result}.",
+                command.Id, bytes.Length, ok ? "ok" : "rejected");
+            return ok ? (true, null) : (false, "screenshot: upload rejected");
+        }
+        finally
+        {
+            try { File.Delete(path); } catch (Exception ex) { logger.LogDebug(ex, "Temp screenshot cleanup failed."); }
         }
     }
 
