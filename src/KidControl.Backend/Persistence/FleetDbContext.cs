@@ -20,6 +20,7 @@ public sealed class FleetDbContext(DbContextOptions<FleetDbContext> options) : D
     public DbSet<Command> Commands => Set<Command>();
     public DbSet<EnrollCode> EnrollCodes => Set<EnrollCode>();
     public DbSet<Audit> Audits => Set<Audit>();
+    public DbSet<DeviceUsageDaily> DeviceUsage => Set<DeviceUsageDaily>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -115,6 +116,15 @@ public sealed class FleetDbContext(DbContextOptions<FleetDbContext> options) : D
             e.Property(x => x.Action).HasMaxLength(80).IsRequired();
             e.Property(x => x.DetailJson).HasColumnType("jsonb");
             e.HasIndex(x => new { x.TenantId, x.At });
+        });
+
+        b.Entity<DeviceUsageDaily>(e =>
+        {
+            e.ToTable("device_usage_daily");
+            e.HasKey(x => new { x.DeviceId, x.Day }); // one row per device per local day
+            e.HasOne(x => x.Device).WithMany()
+                .HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.Day);
         });
     }
 }

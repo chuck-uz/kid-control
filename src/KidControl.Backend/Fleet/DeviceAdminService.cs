@@ -22,6 +22,9 @@ public sealed record DeviceSummary(
 /// <summary>One audit line for the bot's device history.</summary>
 public sealed record AuditEntry(string Action, string Actor, DateTimeOffset At);
 
+/// <summary>Active-use seconds for one local day (dashboard usage chart).</summary>
+public sealed record UsageDay(DateOnly Day, long Seconds);
+
 /// <summary>
 /// Operator-side reads/edits over devices and their policy. Backs the temporary admin API
 /// today; the Telegram bot (T11) will call the same methods. A policy edit bumps the
@@ -50,6 +53,25 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
             .Take(limit)
             .Select(a => new AuditEntry(a.Action, a.Actor, a.At))
             .ToListAsync(ct);
+
+    /// <summary>
+    /// Active-use seconds per local (Tashkent) day for the last <paramref name="days"/> days,
+    /// oldest first, with missing days filled as zero so the chart has a continuous axis.
+    /// </summary>
+    public async Task<IReadOnlyList<UsageDay>> GetUsageAsync(Guid deviceId, int days, CancellationToken ct = default)
+    {
+        var today = DateOnly.FromDateTime(clock.GetUtcNow().ToOffset(TimeSpan.FromHours(5)).DateTime);
+        var from = today.AddDays(-(days - 1));
+
+        var byDay = await db.DeviceUsage.AsNoTracking()
+            .Where(u => u.DeviceId == deviceId && u.Day >= from && u.Day <= today)
+            .ToDictionaryAsync(u => u.Day, u => u.Seconds, ct);
+
+        var result = new List<UsageDay>(days);
+        for (var d = from; d <= today; d = d.AddDays(1))
+            result.Add(new UsageDay(d, byDay.TryGetValue(d, out var s) ? s : 0));
+        return result;
+    }
 
     public async Task<DeviceSummary?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default)
         => await db.Devices.AsNoTracking()

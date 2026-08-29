@@ -224,6 +224,14 @@ app.MapGet("/admin/devices/{id:guid}/history", async (Guid id, int? limit, HttpR
     return Results.Ok(await svc.GetHistoryAsync(id, Math.Clamp(limit ?? 25, 1, 100), ct));
 });
 
+// Per-day active-use seconds for the dashboard's screen-time chart.
+app.MapGet("/admin/devices/{id:guid}/usage", async (Guid id, int? days, HttpRequest http,
+    IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    return Results.Ok(await svc.GetUsageAsync(id, Math.Clamp(days ?? 14, 1, 60), ct));
+});
+
 // Edit a device policy (bumps the version → propagates on the device's next heartbeat).
 app.MapPost("/admin/devices/{id:guid}/policy", async (Guid id, PolicyPatch patch, HttpRequest http,
     IConfiguration cfg, DeviceAdminService svc, CancellationToken ct) =>

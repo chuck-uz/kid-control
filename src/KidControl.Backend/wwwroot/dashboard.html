@@ -90,7 +90,22 @@
   .kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; margin-bottom: 24px; }
   .kv dt { color: var(--muted); font-size: 13px; }
   .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
-  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); margin: 0 0 8px; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); margin: 24px 0 8px; }
+  h3:first-of-type { margin-top: 0; }
+
+  /* ── Usage bar chart ───────────────────────────────────────────────── */
+  .usage { margin-bottom: 8px; }
+  .chart-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--faint); margin-bottom: 8px; }
+  .chart { display: flex; align-items: stretch; gap: 3px; height: 128px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; min-width: 0; }
+  .bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; background: linear-gradient(var(--surface-2), transparent); border-radius: 4px; }
+  .bar-fill { width: 100%; background: var(--accent); border-radius: 4px 4px 2px 2px; min-height: 2px; transition: opacity .15s; }
+  .bar-col:hover .bar-fill { opacity: .8; }
+  .bar-x { font-size: 10px; color: var(--faint); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .bar-tip { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 4px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px;
+    white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 2; }
+  .bar-col:hover .bar-tip { opacity: 1; }
   .hist { list-style: none; margin: 0; padding: 0; }
   .hist li { display: flex; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
   .hist .at { color: var(--faint); font-variant-numeric: tabular-nums; flex: none; width: 88px; }
@@ -254,15 +269,51 @@
         <dt>Политика</dt><dd>v${esc(d.policyVersion)}</dd>
         <dt>На связи</dt><dd>${on ? "🟢 сейчас" : fmtSeen(d.lastSeenAt)}</dd>
       </dl>
+      <h3>Экранное время (14 дней)</h3>
+      <div id="usage" class="usage"><div class="loading" style="padding:16px">Загрузка…</div></div>
       <h3>История</h3>
       <ul class="hist" id="hist"><li>Загрузка…</li></ul>`;
     $("scrim").style.display = "block"; $("drawer").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false");
+
+    try {
+      const usage = await api(`/admin/devices/${d.id}/usage?days=14`);
+      $("usage").innerHTML = renderUsageChart(usage);
+    } catch (e) { if (e.auth) return logout(); $("usage").innerHTML = '<div class="empty" style="padding:16px">Нет данных.</div>'; }
+
     try {
       const hist = await api(`/admin/devices/${d.id}/history?limit=30`);
       $("hist").innerHTML = hist.length
         ? hist.map((e) => `<li><span class="at">${fmtLocal(e.at)}</span><span>${esc(actionLabel(e.action))}</span><span class="who">${esc(e.actor)}</span></li>`).join("")
         : '<li>Записей пока нет.</li>';
     } catch (e) { if (e.auth) return logout(); $("hist").innerHTML = '<li>Не удалось загрузить историю.</li>'; }
+  }
+
+  // ── Usage bar chart (self-contained SVG) ──────────────────────────────
+  function fmtDur(seconds) {
+    const s = Math.round(seconds || 0);
+    if (s <= 0) return "0";
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    if (h > 0) return m > 0 ? `${h}ч ${m}м` : `${h}ч`;
+    return `${Math.max(1, m)}м`;
+  }
+  function renderUsageChart(days) {
+    if (!days || !days.length) return '<div class="empty" style="padding:16px">Нет данных.</div>';
+    const max = Math.max(60, ...days.map((d) => d.seconds));
+    const total = days.reduce((a, d) => a + d.seconds, 0);
+    const bars = days.map((d) => {
+      const on = d.seconds > 0;
+      const h = on ? Math.max(3, (d.seconds / max) * 100) : 0; // % of plot height
+      const dt = new Date(d.day + "T00:00:00");
+      const dow = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][dt.getDay()];
+      const label = `${dow} ${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}`;
+      return `<div class="bar-col">
+          <div class="bar-track"><div class="bar-fill" style="height:${h}%"></div></div>
+          <div class="bar-x">${String(dt.getDate()).padStart(2, "0")}</div>
+          <span class="bar-tip">${label}: ${fmtDur(d.seconds)}</span>
+        </div>`;
+    }).join("");
+    return `<div class="chart-head"><span>макс ${fmtDur(max)}/день</span><span>всего ${fmtDur(total)}</span></div>
+            <div class="chart">${bars}</div>`;
   }
   function closeDrawer() { $("scrim").style.display = "none"; $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); }
 

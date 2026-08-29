@@ -29,11 +29,13 @@ public sealed class HeartbeatService(
         if (device is null)
             return null; // revoked between auth and here, or unknown
 
+        var prevSeen = device.LastSeenAt;
         device.LastSeenAt = now;
         if (!string.IsNullOrWhiteSpace(req.Status.AgentVersion))
             device.AgentVersion = req.Status.AgentVersion;
 
         await UpsertStatusAsync(deviceId, req.Status, now, ct);
+        await AccumulateUsageAsync(deviceId, prevSeen, now, req.Status.Status, ct);
 
         var policy = await db.DevicePolicies.AsNoTracking().FirstOrDefaultAsync(p => p.DeviceId == deviceId, ct);
         var desired = await db.DeviceDesired.AsNoTracking().FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
@@ -66,6 +68,38 @@ public sealed class HeartbeatService(
             try { await bot.SendMessage(chatId, text, cancellationToken: ct); }
             catch (Exception ex) { logger.LogDebug(ex, "Night-attempt alert to {ChatId} failed.", chatId); }
         }
+    }
+
+    /// <summary>Only continuous online gaps count, and only while actively in use.</summary>
+    private static readonly TimeSpan MaxUsageGap = TimeSpan.FromMinutes(3);
+
+    /// <summary>
+    /// Adds the online gap since the previous heartbeat to today's active-use total, but only if
+    /// the gap is short (the device was continuously online — not resuming from off) and the
+    /// device is actively in use (Playing phase). The day is the local Tashkent (UTC+5) calendar
+    /// day, so a session spanning midnight splits naturally across two rows.
+    /// </summary>
+    private async Task AccumulateUsageAsync(Guid deviceId, DateTimeOffset? prevSeen, DateTimeOffset now,
+        string status, CancellationToken ct)
+    {
+        if (prevSeen is not { } prev)
+            return;
+
+        var gap = now - prev;
+        if (gap <= TimeSpan.Zero || gap > MaxUsageGap)
+            return; // resumed from off, or clock skew — not continuous usage
+        if (!string.Equals(status, "Playing", StringComparison.OrdinalIgnoreCase))
+            return; // only the active-use phase counts as time at the computer
+
+        var day = DateOnly.FromDateTime(now.ToOffset(TimeSpan.FromHours(5)).DateTime);
+        var row = await db.DeviceUsage.FirstOrDefaultAsync(u => u.DeviceId == deviceId && u.Day == day, ct);
+        if (row is null)
+        {
+            row = new DeviceUsageDaily { DeviceId = deviceId, Day = day };
+            db.DeviceUsage.Add(row);
+        }
+
+        row.Seconds += (long)gap.TotalSeconds;
     }
 
     private async Task UpsertStatusAsync(Guid deviceId, StatusReportDto status, DateTimeOffset now, CancellationToken ct)
