@@ -37,6 +37,8 @@ builder.Services.AddSingleton<Telegram.Bot.ITelegramBotClient>(
 // Screenshot relay (G1): pairs an operator's request with the agent's later upload. Singleton
 // so the bot (which registers requests) and the /agent/media endpoint (which delivers) share it.
 builder.Services.AddSingleton<ScreenshotRelay>();
+// H2: in-memory dedup for night-usage-attempt alerts (survives per-request scope).
+builder.Services.AddSingleton<NightAttemptTracker>();
 builder.Services.AddHostedService<FleetBotBackgroundService>();
 builder.Services.AddHostedService<AlertBackgroundService>();
 

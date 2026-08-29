@@ -13,4 +13,8 @@ public sealed record StatusReportDto
     public bool IsUnlimited { get; init; }
     public int ShutdownInSeconds { get; init; } = -1;
     public string? AgentVersion { get; init; }
+
+    /// <summary>UTC time of the most recent night-time usage attempt (H2), or null. The backend
+    /// alerts the operator when a value newer than it last saw arrives.</summary>
+    public DateTimeOffset? LastNightAttemptAt { get; init; }
 }

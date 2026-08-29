@@ -5,6 +5,8 @@ using KidControl.Backend.Persistence;
 using KidControl.Fleet.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
+using Telegram.Bot;
 using Xunit;
 
 namespace KidControl.Backend.Tests;
@@ -41,6 +43,12 @@ public class HeartbeatServiceTests
         return id;
     }
 
+    // The night-attempt alert deps: a disabled bot client is never actually called by these
+    // tests (no night attempt in the beats), so a placeholder token is fine.
+    private static HeartbeatService Svc(FleetDbContext db, TestClock clock) =>
+        new(db, clock, new NightAttemptTracker(), new DbAdminRegistry(db),
+            new TelegramBotClient("0:DISABLED"), NullLogger<HeartbeatService>.Instance);
+
     private static HeartbeatRequest Beat(int policyVersion, int desiredVersion) => new()
     {
         Status = new StatusReportDto
@@ -56,7 +64,7 @@ public class HeartbeatServiceTests
     {
         await using var db = NewDb();
         var id = await SeedDeviceAsync(db, policyVersion: 3, desiredVersion: 2);
-        var svc = new HeartbeatService(db, new TestClock(T0));
+        var svc = Svc(db, new TestClock(T0));
 
         var resp = await svc.HandleAsync(id, Beat(policyVersion: 1, desiredVersion: 1));
 
@@ -73,7 +81,7 @@ public class HeartbeatServiceTests
     {
         await using var db = NewDb();
         var id = await SeedDeviceAsync(db, policyVersion: 3, desiredVersion: 2);
-        var svc = new HeartbeatService(db, new TestClock(T0));
+        var svc = Svc(db, new TestClock(T0));
 
         var resp = await svc.HandleAsync(id, Beat(policyVersion: 3, desiredVersion: 2));
 
@@ -87,7 +95,7 @@ public class HeartbeatServiceTests
         await using var db = NewDb();
         var id = await SeedDeviceAsync(db);
         var clock = new TestClock(T0.AddMinutes(5));
-        var svc = new HeartbeatService(db, clock);
+        var svc = Svc(db, clock);
 
         await svc.HandleAsync(id, Beat(3, 2));
 
@@ -111,12 +119,12 @@ public class HeartbeatServiceTests
             DeviceId = id, Type = CommandTypes.AddTime, CreatedAt = T0, TtlAt = T0.AddMinutes(5)
         });
         await db.SaveChangesAsync();
-        var svc = new HeartbeatService(db, new TestClock(T0.AddMinutes(1)));
+        var svc = Svc(db, new TestClock(T0.AddMinutes(1)));
 
         (await svc.HandleAsync(id, Beat(3, 2)))!.HasCommands.Should().BeTrue();
 
         // After TTL, the same command no longer counts.
-        var later = new HeartbeatService(db, new TestClock(T0.AddMinutes(10)));
+        var later = Svc(db, new TestClock(T0.AddMinutes(10)));
         (await later.HandleAsync(id, Beat(3, 2)))!.HasCommands.Should().BeFalse();
     }
 
@@ -124,8 +132,44 @@ public class HeartbeatServiceTests
     public async Task Unknown_device_returns_null()
     {
         await using var db = NewDb();
-        var svc = new HeartbeatService(db, new TestClock(T0));
+        var svc = Svc(db, new TestClock(T0));
         (await svc.HandleAsync(Guid.NewGuid(), Beat(1, 1))).Should().BeNull();
+    }
+
+    [Fact]
+    public void NightAttemptTracker_alerts_once_per_newer_time()
+    {
+        var tracker = new NightAttemptTracker();
+        var dev = Guid.NewGuid();
+
+        tracker.ShouldAlert(dev, null).Should().BeFalse();            // no attempt
+        tracker.ShouldAlert(dev, T0).Should().BeTrue();               // first attempt → alert
+        tracker.ShouldAlert(dev, T0).Should().BeFalse();              // same time → no repeat
+        tracker.ShouldAlert(dev, T0.AddMinutes(-1)).Should().BeFalse(); // older → no
+        tracker.ShouldAlert(dev, T0.AddMinutes(1)).Should().BeTrue();  // newer → alert again
+        tracker.ShouldAlert(Guid.NewGuid(), T0).Should().BeTrue();     // a different device is independent
+    }
+
+    [Fact]
+    public async Task Heartbeat_marks_a_night_attempt_and_does_not_throw_without_admins()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var tracker = new NightAttemptTracker();
+        var svc = new HeartbeatService(db, new TestClock(T0), tracker, new DbAdminRegistry(db),
+            new TelegramBotClient("0:DISABLED"), NullLogger<HeartbeatService>.Instance);
+
+        var attemptAt = T0.AddMinutes(2);
+        var beat = new HeartbeatRequest
+        {
+            Status = new StatusReportDto { Status = "NightBlocked", LastNightAttemptAt = attemptAt },
+            PolicyVersion = 3, DesiredVersion = 2
+        };
+
+        await svc.HandleAsync(id, beat); // no admins seeded → no send, must not throw
+
+        // The heartbeat consumed the attempt: the same time won't alert again.
+        tracker.ShouldAlert(id, attemptAt).Should().BeFalse();
     }
 
     [Fact]
