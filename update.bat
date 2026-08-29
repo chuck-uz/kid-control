@@ -18,8 +18,9 @@ rem ---------------------------------------------------------------------------
 set "KC_OWNER=chuck-uz"
 set "KC_REPO=kid-control"
 
-rem  Which release to install. Pinned tag = exact version (recommended). Empty = latest.
-set "KC_TAG=v2.1.2"
+rem  Which release to install. Empty = latest (rate-limit-free CDN URL) — the default so this
+rem  script never goes stale. Set a pinned tag (e.g. v2.2.0) only for a specific version.
+set "KC_TAG="
 
 rem  PRIVATE repo? GitHub token (fine-grained Contents:Read, or classic 'repo'). Empty if public.
 set "KC_GH_TOKEN="
