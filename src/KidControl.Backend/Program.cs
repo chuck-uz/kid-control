@@ -242,7 +242,7 @@ app.MapPost("/agent/alert", async (HttpRequest http, System.Security.Claims.Clai
         return Results.BadRequest(new { error = "meta is required" });
 
     WordAlertDto? dto;
-    try { dto = System.Text.Json.JsonSerializer.Deserialize<WordAlertDto>(metaJson); }
+    try { dto = FleetJson.Deserialize<WordAlertDto>(metaJson); } // case-insensitive, matches the agent
     catch (System.Text.Json.JsonException) { return Results.BadRequest(new { error = "bad meta json" }); }
     if (dto is null || string.IsNullOrWhiteSpace(dto.Term))
         return Results.BadRequest(new { error = "term is required" });

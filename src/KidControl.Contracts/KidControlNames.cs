@@ -22,6 +22,10 @@ public static class KidControlNames
     /// <summary>Pipe: service -> UI, screenshot requests.</summary>
     public const string UiCommandPipe = "KidControl.UiCommand";
 
+    /// <summary>Pipe: UI -> service, content-monitor observations (RFC-05). The interactive
+    /// UI is the sensor (keyboard/window/URL); the SYSTEM service matches + pushes alerts.</summary>
+    public const string MonitorEventsPipe = "KidControl.MonitorEvents";
+
     public const string ServiceProcessName = "KidControl.ServiceHost";
     public const string UiProcessName = "KidControl.UiHost";
     public const string UiExecutableName = "KidControl.UiHost.exe";

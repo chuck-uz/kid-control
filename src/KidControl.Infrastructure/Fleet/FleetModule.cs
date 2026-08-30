@@ -30,6 +30,7 @@ public static class FleetModule
         services.AddSingleton<FleetPolicyApplier>();
         services.AddSingleton<FleetDesiredApplier>();
         services.AddSingleton<FleetCommandApplier>();
+        services.AddSingleton<MonitorCoordinator>(); // RFC-05 content monitor (service side)
         services.AddSingleton<FleetReconciler>();
 
         var baseUrl = fleet.Url.EndsWith('/') ? fleet.Url : fleet.Url + "/";

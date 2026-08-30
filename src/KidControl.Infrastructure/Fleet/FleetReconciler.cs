@@ -25,12 +25,18 @@ public sealed class FleetReconciler(
     SessionService session,
     AgentInfo agent,
     TimeProvider clock,
-    ILogger<FleetReconciler> logger)
+    ILogger<FleetReconciler> logger,
+    MonitorCoordinator? monitor = null)
 {
     private readonly FleetState _state = stateStore.Load();
 
-    /// <summary>Attach the device token to the backend client (the reconciler's own instance).</summary>
-    public void UseToken(string token) => client.UseToken(token);
+    /// <summary>Attach the device token to the backend client (the reconciler's own instance),
+    /// and hand that authenticated client to the content monitor (RFC-05).</summary>
+    public void UseToken(string token)
+    {
+        client.UseToken(token);
+        monitor?.AttachClient(client, _state.Policy);
+    }
 
     /// <summary>Enforce the last cached policy + desired immediately, before any network I/O.</summary>
     public async Task ApplyCachedAsync(CancellationToken ct = default)
@@ -78,6 +84,8 @@ public sealed class FleetReconciler(
         if (resp.Policy is not null && resp.Policy.Version > _state.PolicyVersion)
         {
             await policyApplier.ApplyAsync(resp.Policy, ct);
+            if (monitor is not null)
+                await monitor.OnPolicyAsync(resp.Policy, ct);
             _state.Policy = resp.Policy;
             changed = true;
         }

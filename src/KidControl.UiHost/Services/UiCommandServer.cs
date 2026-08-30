@@ -28,6 +28,9 @@ public sealed class UiCommandServer : IDisposable
     private readonly object _sync = new();
     private bool _started;
 
+    /// <summary>Invoked when the service sends MONITOR|on/off (RFC-05). Set by the host.</summary>
+    public Action<bool>? OnSetMonitor { get; set; }
+
     public void Start()
     {
         if (_started) { return; }
@@ -91,6 +94,9 @@ public sealed class UiCommandServer : IDisposable
                     return await PlayAsync(arg).ConfigureAwait(false)
                         ? UiCommandProtocol.Ok
                         : Err("playback failed (unsupported format? OGG/Opus voice needs the free 'Web Media Extensions' from Microsoft Store)");
+                case UiCommandProtocol.Monitor:
+                    OnSetMonitor?.Invoke(string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase));
+                    return UiCommandProtocol.Ok;
                 default:
                     return Err($"unknown verb '{verb}'");
             }

@@ -28,6 +28,10 @@ public partial class App : Application
         var services = new ServiceCollection();
         services.AddSingleton<StatePipeClient>();
         services.AddSingleton<UiCommandServer>();
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<MonitorSensor>();
+        }
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
         _serviceProvider = services.BuildServiceProvider();
@@ -35,7 +39,14 @@ public partial class App : Application
         _serviceProvider.GetRequiredService<StatePipeClient>().Start();
         if (OperatingSystem.IsWindows())
         {
-            _serviceProvider.GetRequiredService<UiCommandServer>().Start();
+            // RFC-05: the content-monitor sensor streams observations to the service; the service
+            // toggles it on/off via the MONITOR command based on policy.
+            var sensor = _serviceProvider.GetRequiredService<MonitorSensor>();
+            sensor.Start();
+
+            var uiCommands = _serviceProvider.GetRequiredService<UiCommandServer>();
+            uiCommands.OnSetMonitor = sensor.SetEnabled;
+            uiCommands.Start();
         }
 
         var mainWindow = _serviceProvider.GetRequiredService<MainWindow>();
@@ -99,6 +110,10 @@ public partial class App : Application
     {
         _serviceProvider?.GetService<StatePipeClient>()?.Stop();
         _serviceProvider?.GetService<UiCommandServer>()?.Stop();
+        if (OperatingSystem.IsWindows())
+        {
+            _serviceProvider?.GetService<MonitorSensor>()?.Dispose();
+        }
         _serviceProvider?.Dispose();
         Log.CloseAndFlush();
         base.OnExit(e);
