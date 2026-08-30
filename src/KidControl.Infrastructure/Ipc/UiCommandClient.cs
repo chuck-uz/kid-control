@@ -17,6 +17,9 @@ public interface IUiCommandClient
 
     /// <summary>Play an audio file in the interactive session. Returns true on success.</summary>
     Task<bool> PlayAudioAsync(string audioPath, CancellationToken ct = default);
+
+    /// <summary>Enable/disable the content-monitor sensor in the UI (RFC-05). Best-effort.</summary>
+    Task SetMonitorAsync(bool enabled, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>
@@ -58,6 +61,13 @@ public sealed class UiCommandClient(ILogger<UiCommandClient> logger) : IUiComman
         }
 
         return ok;
+    }
+
+    /// <summary>Tell the UI to start/stop the content-monitor sensor (RFC-05). Best-effort.</summary>
+    public async Task SetMonitorAsync(bool enabled, CancellationToken ct = default)
+    {
+        var request = $"{UiCommandProtocol.Monitor}{UiCommandProtocol.Separator}{(enabled ? "on" : "off")}";
+        await SendAsync(request, ct).ConfigureAwait(false);
     }
 
     private async Task<string?> SendAsync(string request, CancellationToken ct)

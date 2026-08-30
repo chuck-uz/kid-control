@@ -27,6 +27,14 @@ public interface IFleetClient
     /// <summary>Download an operator-sent audio clip to play (G2). Null on any failure.</summary>
     Task<byte[]?> DownloadMediaAsync(string mediaId, CancellationToken ct = default);
 
+    /// <summary>Fetch the content-monitor lists (RFC-05). Null on any failure. Default no-op for fakes.</summary>
+    Task<MonitorListsDto?> GetMonitorListsAsync(CancellationToken ct = default)
+        => Task.FromResult<MonitorListsDto?>(null);
+
+    /// <summary>Push a content-monitor hit + optional screenshot (RFC-05). Default no-op for fakes.</summary>
+    Task<bool> PostAlertAsync(WordAlertDto alert, byte[]? screenshot, CancellationToken ct = default)
+        => Task.FromResult(false);
+
     void UseToken(string token);
 }
 
@@ -176,6 +184,57 @@ public sealed class FleetClient(HttpClient http, ILogger<FleetClient> logger) : 
         {
             logger.LogWarning(ex, "Audio download could not reach the backend.");
             return null;
+        }
+    }
+
+    public async Task<MonitorListsDto?> GetMonitorListsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var resp = await http.GetAsync("agent/monitor-lists", ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Monitor-lists fetch failed: {Status}", (int)resp.StatusCode);
+                return null;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(ct);
+            return System.Text.Json.JsonSerializer.Deserialize<MonitorListsDto>(json, FleetJson.Options);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            logger.LogWarning(ex, "Monitor-lists fetch could not reach the backend.");
+            return null;
+        }
+    }
+
+    public async Task<bool> PostAlertAsync(WordAlertDto alert, byte[]? screenshot, CancellationToken ct = default)
+    {
+        try
+        {
+            using var form = new MultipartFormDataContent();
+            var metaJson = System.Text.Json.JsonSerializer.Serialize(alert, FleetJson.Options);
+            form.Add(new StringContent(metaJson, Encoding.UTF8, "application/json"), "meta");
+            if (screenshot is { Length: > 0 })
+            {
+                var img = new ByteArrayContent(screenshot);
+                img.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                form.Add(img, "shot", "alert.png");
+            }
+
+            using var resp = await http.PostAsync("agent/alert", form, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Alert post failed: {Status}", (int)resp.StatusCode);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Alert post could not reach the backend.");
+            return false;
         }
     }
 

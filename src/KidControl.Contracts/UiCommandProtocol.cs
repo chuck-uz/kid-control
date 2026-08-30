@@ -17,6 +17,9 @@ public static class UiCommandProtocol
     /// <summary>PLAY|&lt;audioPath&gt; — play the audio file.</summary>
     public const string Play = "PLAY";
 
+    /// <summary>MONITOR|on|off — enable/disable the content-monitor sensor (RFC-05).</summary>
+    public const string Monitor = "MONITOR";
+
     public const string Ok = "OK";
     public const string ErrorPrefix = "ERR";
 }
