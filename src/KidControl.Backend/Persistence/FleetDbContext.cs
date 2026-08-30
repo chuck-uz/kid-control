@@ -21,6 +21,9 @@ public sealed class FleetDbContext(DbContextOptions<FleetDbContext> options) : D
     public DbSet<EnrollCode> EnrollCodes => Set<EnrollCode>();
     public DbSet<Audit> Audits => Set<Audit>();
     public DbSet<DeviceUsageDaily> DeviceUsage => Set<DeviceUsageDaily>();
+    public DbSet<MonitorTerm> MonitorTerms => Set<MonitorTerm>();
+    public DbSet<MonitorMeta> MonitorMetas => Set<MonitorMeta>();
+    public DbSet<WordAlert> WordAlerts => Set<WordAlert>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -125,6 +128,33 @@ public sealed class FleetDbContext(DbContextOptions<FleetDbContext> options) : D
             e.HasOne(x => x.Device).WithMany()
                 .HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => x.Day);
+        });
+
+        b.Entity<MonitorTerm>(e =>
+        {
+            e.ToTable("monitor_term");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Kind).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Value).HasMaxLength(400).IsRequired();
+            e.HasIndex(x => x.Kind);
+        });
+
+        b.Entity<MonitorMeta>(e =>
+        {
+            e.ToTable("monitor_meta");
+            e.HasKey(x => x.Id);
+        });
+
+        b.Entity<WordAlert>(e =>
+        {
+            e.ToTable("word_alert");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Category).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Term).HasMaxLength(400).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(20).IsRequired();
+            e.HasOne(x => x.Device).WithMany()
+                .HasForeignKey(x => x.DeviceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.DeviceId, x.At });
         });
     }
 }

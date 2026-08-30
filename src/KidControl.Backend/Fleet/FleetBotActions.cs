@@ -49,6 +49,7 @@ public sealed class FleetBotActions(
         var ruleLine = d.IntervalsEnabled && !d.IsUnlimited
             ? $"Интервал: 🎮 {d.PlayMinutes}/{d.RestMinutes} мин (игра/отдых)"
             : "Интервал: ♾️ отключён";
+        var monitorLine = d.WordMonitorEnabled ? "Монитор: 🛡️ вкл" : "Монитор: 🔓 выкл";
         var night = d.IsNight ? "\n🌙 Сейчас ночной режим" : "";
         var overrides = string.Concat(
             d.ForceBlocked ? "\n🚫 Принудительная блокировка" : "",
@@ -56,6 +57,7 @@ public sealed class FleetBotActions(
         return $"📊 {d.Name}\n" +
                $"Статус: {d.Status ?? "нет данных"}\n" +
                $"{ruleLine}\n" +
+               $"{monitorLine}\n" +
                $"{timeLine}{night}{overrides}\n" +
                $"Версия агента: {d.AgentVersion ?? "—"}\n" +
                $"На связи: {seen}";
@@ -178,6 +180,10 @@ public sealed class FleetBotActions(
     public Task<string> SetIntervalsAsync(Guid deviceId, bool enabled, CancellationToken ct = default)
         => PolicyAsync(deviceId, new PolicyPatch(IntervalsEnabled: enabled),
             enabled ? "✅ Интервалы включены." : "♾️ Интервалы отключены.", ct);
+
+    public Task<string> SetWordMonitorAsync(Guid deviceId, bool enabled, CancellationToken ct = default)
+        => PolicyAsync(deviceId, new PolicyPatch(WordMonitorEnabled: enabled),
+            enabled ? "🛡️ Монитор контента включён." : "🔓 Монитор контента выключен.", ct);
 
     public Task<string> SetNightEnabledAsync(Guid deviceId, bool enabled, CancellationToken ct = default)
         => PolicyAsync(deviceId, new PolicyPatch(NightEnabled: enabled),

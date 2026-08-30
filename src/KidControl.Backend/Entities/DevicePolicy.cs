@@ -23,13 +23,21 @@ public sealed class DevicePolicy
 
     public bool IntervalsEnabled { get; set; } = true;
 
+    /// <summary>Content monitor (RFC-05): keystroke + window/URL matching. Default ON.</summary>
+    public bool WordMonitorEnabled { get; set; } = true;
+
+    /// <summary>How many raw chars of context the alert carries around a match.</summary>
+    public int MonitorContextChars { get; set; } = 30;
+
     /// <summary>Update target: "latest" or a pinned tag ("v2.0.10").</summary>
     public string TargetVersion { get; set; } = "latest";
 
     public DateTimeOffset UpdatedAt { get; set; }
 
-    /// <summary>Project onto the wire contract the agent caches and enforces.</summary>
-    public PolicyDto ToDto() => new()
+    /// <summary>Project onto the wire contract the agent caches and enforces.
+    /// <paramref name="monitorListsVersion"/> is the current backend list version so the agent
+    /// knows when to re-fetch the (large) lists from <c>/agent/monitor-lists</c>.</summary>
+    public PolicyDto ToDto(int monitorListsVersion = 0) => new()
     {
         Version = Version,
         PlayMinutes = PlayMinutes,
@@ -38,6 +46,9 @@ public sealed class DevicePolicy
         NightStart = NightStart,
         NightEnd = NightEnd,
         IntervalsEnabled = IntervalsEnabled,
-        TargetVersion = TargetVersion
+        TargetVersion = TargetVersion,
+        WordMonitorEnabled = WordMonitorEnabled,
+        MonitorContextChars = MonitorContextChars,
+        MonitorListsVersion = monitorListsVersion
     };
 }
