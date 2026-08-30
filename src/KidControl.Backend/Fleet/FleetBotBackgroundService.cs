@@ -31,6 +31,7 @@ public sealed class FleetBotBackgroundService(
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRename = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingTarget = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRule = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingNight = new();
 
     // ── Bottom (persistent) keyboard — the control folders ────────────────────
     private const string BtnStatus = "📊 Статус", BtnTime = "➕ Время", BtnApp = "🎮 Приложение",
@@ -186,6 +187,20 @@ public sealed class FleetBotBackgroundService(
                 return;
             }
             await Send(chatId, "Ввод интервала отменён.", ct);
+        }
+
+        // Awaiting a custom night window? The next message is "ЧЧ:ММ-ЧЧ:ММ", e.g. 21:30-08:00.
+        if (_awaitingNight.TryRemove(chatId, out var nightId))
+        {
+            if (!t.StartsWith('/') && !IsKeyboardButton(t))
+            {
+                if (NightWindow.TryParse(t, out var win))
+                    await Send(chatId, await actions.SetNightWindowAsync(nightId, win.Start, win.End, ct), ct);
+                else
+                    await Send(chatId, "Не понял окно. Пришлите в формате ЧЧ:ММ-ЧЧ:ММ, например 21:30-08:00.", ct);
+                return;
+            }
+            await Send(chatId, "Ввод ночного окна отменён.", ct);
         }
 
         // ── Global commands (not device-scoped) ──
@@ -377,6 +392,7 @@ public sealed class FleetBotBackgroundService(
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
         if (kind == "vtag") { _awaitingTarget[chatId] = deviceId; await Send(chatId, "✏️ Отправьте тег версии одним сообщением (например 2.2.0) или latest:", ct); return; }
         if (kind == "rulecustom") { _awaitingRule[chatId] = deviceId; await Send(chatId, "✏️ Пришлите свой интервал одним сообщением — игра/отдых в минутах, например 50/10:", ct); return; }
+        if (kind == "nightcustom") { _awaitingNight[chatId] = deviceId; await Send(chatId, "✏️ Пришлите своё ночное окно одним сообщением — ЧЧ:ММ-ЧЧ:ММ, например 21:30-08:00:", ct); return; }
         if (kind == "shot")
         {
             var uploadId = Guid.NewGuid().ToString("N");
@@ -468,9 +484,23 @@ public sealed class FleetBotBackgroundService(
                 break;
             case "night":
                 title = "Ночной режим:";
-                kb = new(new[] { new[] { B("🌙 Вкл", $"a:{id}:night:on"), B("🔕 Выкл", $"a:{id}:night:off") },
-                                 new[] { B("22:00-07:00", $"a:{id}:nightwin:2200:0700"), B("23:00-06:00", $"a:{id}:nightwin:2300:0600") },
-                                 new[] { B("🌙 Снять ночь на сегодня", $"a:{id}:bypass") } });
+                var nightDev = (await actions.ListDevicesAsync(ct)).FirstOrDefault(x => x.Id == id);
+                var nightRows = new List<InlineKeyboardButton[]>
+                {
+                    new[] { B("🌙 Вкл", $"a:{id}:night:on"), B("🔕 Выкл", $"a:{id}:night:off") },
+                };
+                // Current window (incl. a just-set custom one) as a one-tap quick-select.
+                if (nightDev is { NightEnabled: true })
+                {
+                    var s = nightDev.NightStart;
+                    var e = nightDev.NightEnd;
+                    nightRows.Add(new[] { B($"⭐ {s:hh\\:mm}-{e:hh\\:mm} (сейчас)",
+                        $"a:{id}:nightwin:{s:hh}{s:mm}:{e:hh}{e:mm}") });
+                }
+                nightRows.Add(new[] { B("22:00-07:00", $"a:{id}:nightwin:2200:0700"), B("23:00-06:00", $"a:{id}:nightwin:2300:0600") });
+                nightRows.Add(new[] { B("✏️ Своё окно", $"nightcustom:{id}") });
+                nightRows.Add(new[] { B("🌙 Снять ночь на сегодня", $"a:{id}:bypass") });
+                kb = new(nightRows);
                 break;
             case "ver":
                 title = await actions.VersionTextAsync(id, ct);

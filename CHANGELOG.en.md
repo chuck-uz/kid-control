@@ -5,6 +5,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/).
 Русская версия: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+- **Custom night window in the bot.** The "🌙 Night" menu gains a "✏️ Custom window"
+  button: the parent sends their own `HH:MM-HH:MM` window (e.g. `21:30-08:00`) instead of
+  only presets. The current window is pinned as the first "⭐ … (now)" button and shown in
+  📊 Status — mirroring custom intervals.
+
 ## [2.7.0] — 2026-08-30
 
 ### Added
