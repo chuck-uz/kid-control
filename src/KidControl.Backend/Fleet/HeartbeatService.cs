@@ -39,6 +39,10 @@ public sealed class HeartbeatService(
 
         var policy = await db.DevicePolicies.AsNoTracking().FirstOrDefaultAsync(p => p.DeviceId == deviceId, ct);
         var desired = await db.DeviceDesired.AsNoTracking().FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+        // Content-monitor list version rides the policy snapshot so the agent knows when to
+        // re-fetch the (large) lists. A list change bumps device policy versions (see
+        // MonitorListService) so the new version reaches agents through the normal delta sync.
+        var listsVersion = (await db.MonitorMetas.AsNoTracking().FirstOrDefaultAsync(ct))?.ListsVersion ?? 0;
 
         var hasCommands = await db.Commands
             .AnyAsync(c => c.DeviceId == deviceId && c.AckedAt == null && c.TtlAt > now, ct);
@@ -52,7 +56,7 @@ public sealed class HeartbeatService(
         return new HeartbeatResponse
         {
             // Send the snapshot only when the agent is behind — otherwise null (no-op heartbeat).
-            Policy = policy is not null && policy.Version > req.PolicyVersion ? policy.ToDto() : null,
+            Policy = policy is not null && policy.Version > req.PolicyVersion ? policy.ToDto(listsVersion) : null,
             Desired = desired is not null && desired.Version > req.DesiredVersion ? desired.ToDto() : null,
             HasCommands = hasCommands
         };

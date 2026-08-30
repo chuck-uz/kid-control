@@ -22,6 +22,15 @@ public sealed record PolicyDto
 
     public bool IntervalsEnabled { get; init; } = true;
 
+    /// <summary>Content monitor on/off (RFC-05). Default ON.</summary>
+    public bool WordMonitorEnabled { get; init; } = true;
+
+    /// <summary>Raw chars of context carried around a match in the alert.</summary>
+    public int MonitorContextChars { get; init; } = 30;
+
+    /// <summary>Backend version of the monitor lists; the agent re-fetches when it changes.</summary>
+    public int MonitorListsVersion { get; init; }
+
     /// <summary>Desired update target: "latest" or a pinned tag like "v2.0.10".</summary>
     public string TargetVersion { get; init; } = "latest";
 

@@ -402,6 +402,7 @@ public sealed class FleetBotBackgroundService(
             "restart" => await a.RestartAsync(id, ct),
             "setrule" => await a.SetRuleAsync(id, ParseInt(tail, 1, 40), ParseInt(tail, 2, 20), ct),
             "intervals" => await a.SetIntervalsAsync(id, tail.ElementAtOrDefault(1) == "on", ct),
+            "monitor" => await a.SetWordMonitorAsync(id, tail.ElementAtOrDefault(1) == "on", ct),
             "night" => await a.SetNightEnabledAsync(id, tail.ElementAtOrDefault(1) == "on", ct),
             "nightwin" => await a.SetNightWindowAsync(id, ParseHm(tail, 1), ParseHm(tail, 2), ct),
             "bypass" => await a.NightBypassAsync(id, DateTimeOffset.UtcNow.AddHours(10), ct),
@@ -431,8 +432,14 @@ public sealed class FleetBotBackgroundService(
                                  new[] { B("+60", $"a:{id}:addtime:60"), B("+120", $"a:{id}:addtime:120") } });
                 break;
             case "app":
-                title = "Контроль:";
-                kb = new(new[] { new[] { B("⏸️ Пауза", $"a:{id}:pause"), B("▶️ Продолжить", $"a:{id}:resume") } });
+                var appDev = (await actions.ListDevicesAsync(ct)).FirstOrDefault(x => x.Id == id);
+                var monState = appDev is { WordMonitorEnabled: true } ? "🛡️ вкл" : "🔓 выкл";
+                title = $"Контроль:\nМонитор контента: {monState}";
+                kb = new(new[]
+                {
+                    new[] { B("⏸️ Пауза", $"a:{id}:pause"), B("▶️ Продолжить", $"a:{id}:resume") },
+                    new[] { B("🛡️ Монитор вкл", $"a:{id}:monitor:on"), B("🔓 Монитор выкл", $"a:{id}:monitor:off") },
+                });
                 break;
             case "pc":
                 title = "Компьютер:";

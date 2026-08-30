@@ -5,6 +5,7 @@ using KidControl.Backend.Persistence;
 using KidControl.Fleet.Contracts;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +28,9 @@ builder.Services.AddScoped<DeviceAdminService>();
 builder.Services.AddScoped<CommandService>();
 builder.Services.AddScoped<DbAdminRegistry>();
 builder.Services.AddScoped<FleetBotActions>();
+// Content monitor (RFC-05): list management + alert handling.
+builder.Services.AddScoped<MonitorListService>();
+builder.Services.AddScoped<WordAlertService>();
 
 // Fleet operator bot (T11): long-polls Telegram, drives the fleet services. A placeholder
 // token keeps DI valid when unconfigured; the hosted service no-ops until a real token is set.
@@ -41,6 +45,8 @@ builder.Services.AddSingleton<ScreenshotRelay>();
 builder.Services.AddSingleton<AudioRelay>();
 // H2: in-memory dedup for night-usage-attempt alerts (survives per-request scope).
 builder.Services.AddSingleton<NightAttemptTracker>();
+// RFC-05: content-monitor alert anti-spam (60s cooldown + 10/min ceiling), survives scope.
+builder.Services.AddSingleton<WordAlertTracker>();
 builder.Services.AddHostedService<FleetBotBackgroundService>();
 builder.Services.AddHostedService<AlertBackgroundService>();
 
@@ -68,6 +74,13 @@ if (builder.Configuration.GetValue("Fleet:AutoMigrate", true))
     try
     {
         await FleetSeed.MigrateAndSeedAsync(app.Services);
+
+        // RFC-05: seed the content-monitor lists from files on the VM if the DB has none yet.
+        var listsDir = builder.Configuration["Monitor:ListsDir"]
+            ?? Environment.GetEnvironmentVariable("MONITOR_LISTS_DIR");
+        using var seedScope = app.Services.CreateScope();
+        await seedScope.ServiceProvider.GetRequiredService<MonitorListService>()
+            .SeedFromDirectoryIfEmptyAsync(listsDir);
     }
     catch (Exception ex) when (ex is NpgsqlException or TimeoutException or InvalidOperationException)
     {
@@ -198,6 +211,55 @@ app.MapGet("/agent/audio", (HttpRequest http, System.Security.Claims.ClaimsPrinc
         : Results.File(bytes, "audio/ogg");
 }).RequireAuthorization();
 
+// ── Agent: fetch the content-monitor lists (RFC-05). Fetched only when the agent's cached
+// version is behind the version it saw in its policy snapshot. ────────────────────────────────
+app.MapGet("/agent/monitor-lists", async (System.Security.Claims.ClaimsPrincipal user,
+    MonitorListService lists, CancellationToken ct) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    return Results.Ok(await lists.GetListsAsync(ct));
+}).RequireAuthorization();
+
+// ── Agent: push a content-monitor hit the instant it happens (RFC-05). Multipart form:
+// "meta" = WordAlertDto JSON, optional "shot" = screenshot. Backend dedups, records metadata,
+// and pushes the alert (+ screenshot) to the operators' Telegram. ──────────────────────────────
+app.MapPost("/agent/alert", async (HttpRequest http, System.Security.Claims.ClaimsPrincipal user,
+    WordAlertService alerts, CancellationToken ct) =>
+{
+    var deviceId = user.DeviceId();
+    if (deviceId is null)
+        return Results.Unauthorized();
+
+    if (!http.HasFormContentType)
+        return Results.BadRequest(new { error = "multipart/form-data expected" });
+
+    var form = await http.ReadFormAsync(ct);
+    var metaJson = form["meta"].ToString();
+    if (string.IsNullOrWhiteSpace(metaJson))
+        return Results.BadRequest(new { error = "meta is required" });
+
+    WordAlertDto? dto;
+    try { dto = System.Text.Json.JsonSerializer.Deserialize<WordAlertDto>(metaJson); }
+    catch (System.Text.Json.JsonException) { return Results.BadRequest(new { error = "bad meta json" }); }
+    if (dto is null || string.IsNullOrWhiteSpace(dto.Term))
+        return Results.BadRequest(new { error = "term is required" });
+
+    byte[]? shot = null;
+    var file = form.Files["shot"];
+    if (file is { Length: > 0 and <= WordAlertService.MaxScreenshotBytes })
+    {
+        using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct);
+        shot = ms.ToArray();
+    }
+
+    var ok = await alerts.HandleAsync(deviceId.Value, dto, shot, ct);
+    return ok ? Results.Ok() : Results.Unauthorized();
+}).RequireAuthorization();
+
 // ── Operator surface. Temporary (X-Admin-Key), until the bot (T11) owns it. ───────────────
 // Mint an enroll code.
 app.MapPost("/admin/enroll-code", async (HttpRequest http, IConfiguration cfg, EnrollmentService svc,
@@ -288,6 +350,31 @@ app.MapPost("/admin/devices/{id:guid}/commands", async (Guid id, EnqueueCommandR
     var ttl = TimeSpan.FromSeconds(Math.Clamp(body.TtlSeconds ?? 300, 5, 86_400));
     var commandId = await svc.EnqueueAsync(id, body.Type, body.Payload, ttl, ct: ct);
     return commandId is null ? Results.NotFound() : Results.Ok(new { commandId, ttlSeconds = (int)ttl.TotalSeconds });
+});
+
+// Content-monitor lists (RFC-05): view counts + version.
+app.MapGet("/admin/monitor-lists", async (HttpRequest http, IConfiguration cfg, MonitorListService svc,
+    CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var lists = await svc.GetListsAsync(ct);
+    return Results.Ok(new
+    {
+        version = lists.Version,
+        profanity = lists.Profanity.Count,
+        adultKeywords = lists.AdultKeywords.Count,
+        adultDomains = lists.AdultDomains.Count,
+        exceptions = lists.Exceptions.Count
+    });
+});
+
+// Replace ALL content-monitor lists in one shot; bumps the version (agents re-fetch).
+app.MapPost("/admin/monitor-lists", async (MonitorListsDto body, HttpRequest http, IConfiguration cfg,
+    MonitorListService svc, CancellationToken ct) =>
+{
+    if (AdminGuard(http, cfg) is { } deny) return deny;
+    var version = await svc.ReplaceAllAsync(body, ct);
+    return Results.Ok(new { version });
 });
 
 app.Run();

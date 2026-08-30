@@ -13,13 +13,16 @@ public sealed record PolicyPatch(
     TimeSpan? NightStart = null,
     TimeSpan? NightEnd = null,
     bool? IntervalsEnabled = null,
-    string? TargetVersion = null);
+    string? TargetVersion = null,
+    bool? WordMonitorEnabled = null,
+    int? MonitorContextChars = null);
 
 public sealed record DeviceSummary(
     Guid Id, string Name, string? GroupLabel, DateTimeOffset? LastSeenAt, string? AgentVersion,
     int PolicyVersion, string? Status, TimeSpan? TimeRemaining, bool IsUnlimited = false, bool IsNight = false,
     bool Paused = false, bool ForceBlocked = false, string? TargetVersion = null,
-    int PlayMinutes = 40, int RestMinutes = 20, bool IntervalsEnabled = true);
+    int PlayMinutes = 40, int RestMinutes = 20, bool IntervalsEnabled = true,
+    bool WordMonitorEnabled = true);
 
 /// <summary>One audit line for the bot's device history.</summary>
 public sealed record AuditEntry(string Action, string Actor, DateTimeOffset At);
@@ -44,7 +47,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
                 d.Status != null && d.Status.IsUnlimited, d.Status != null && d.Status.IsNight,
                 d.Desired != null && d.Desired.Paused, d.Desired != null && d.Desired.ForceBlocked,
                 d.Policy!.TargetVersion,
-                d.Policy.PlayMinutes, d.Policy.RestMinutes, d.Policy.IntervalsEnabled))
+                d.Policy.PlayMinutes, d.Policy.RestMinutes, d.Policy.IntervalsEnabled,
+                d.Policy.WordMonitorEnabled))
             .ToListAsync(ct);
 
     /// <summary>Recent audit lines for a device, newest first.</summary>
@@ -85,7 +89,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
                 d.Status != null && d.Status.IsUnlimited, d.Status != null && d.Status.IsNight,
                 d.Desired != null && d.Desired.Paused, d.Desired != null && d.Desired.ForceBlocked,
                 d.Policy!.TargetVersion,
-                d.Policy.PlayMinutes, d.Policy.RestMinutes, d.Policy.IntervalsEnabled))
+                d.Policy.PlayMinutes, d.Policy.RestMinutes, d.Policy.IntervalsEnabled,
+                d.Policy.WordMonitorEnabled))
             .FirstOrDefaultAsync(ct);
 
     /// <summary>Give a device a friendly name (max 200 chars). Returns false if unknown/blank.</summary>
@@ -148,6 +153,8 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
         if (patch.NightStart is { } ns) policy.NightStart = ns;
         if (patch.NightEnd is { } end) policy.NightEnd = end;
         if (patch.IntervalsEnabled is { } ie) policy.IntervalsEnabled = ie;
+        if (patch.WordMonitorEnabled is { } wm) policy.WordMonitorEnabled = wm;
+        if (patch.MonitorContextChars is { } mc && mc >= 0) policy.MonitorContextChars = Math.Min(mc, 200);
         if (!string.IsNullOrWhiteSpace(patch.TargetVersion)) policy.TargetVersion = patch.TargetVersion;
 
         policy.Version += 1;
