@@ -5,9 +5,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/).
 Русская версия: [CHANGELOG.md](CHANGELOG.md).
 
-## [Unreleased]
+## [2.6.0] — 2026-08-30
 
 ### Added
+- **Content monitor (RFC-05).** The agent watches what the child **views** (active
+  window/app title), matches it against backend-managed lists (profanity + adult keywords
+  + porn domains, with false-positive exceptions) and, on a hit, **instantly** pushes the
+  parent a Telegram alert with a screenshot. A "🛡️ Monitor" toggle in the Control menu
+  (on by default), a line in 📊 Status, anti-spam (60s/device + 10/min), and metadata-only
+  storage (no text, no screenshots) on the backend. The "keyboard" and "browser URL"
+  sources land in the next release.
 - **Custom intervals in the bot.** The "⚙️ Intervals" menu gains a "✏️ Custom interval"
   button — the parent sends their own play/rest value in one message (e.g. `50/10`,
   `50 10` or `50:10`) instead of picking a preset. Values are validated and clamped to
