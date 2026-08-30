@@ -67,6 +67,31 @@ public sealed class ScheduleRuleTests
     }
 
     [Theory]
+    [InlineData("45 15")]   // space, phone-friendly
+    [InlineData("45:15")]   // colon
+    [InlineData("45/15")]   // slash
+    [InlineData("  45   15  ")]
+    public void TryParse_Should_Accept_SpaceOrColonSeparators(string text)
+    {
+        var ok = ScheduleRule.TryParse(text, out var rule);
+
+        ok.Should().BeTrue();
+        rule.PlayMinutes.Should().Be(45);
+        rule.RestMinutes.Should().Be(15);
+    }
+
+    [Theory]
+    [InlineData(ScheduleRule.MaxMinutes, 1)]   // upper boundary is accepted
+    public void TryParse_Should_Accept_Boundary(int play, int rest)
+    {
+        var ok = ScheduleRule.TryParse($"{play}/{rest}", out var rule);
+
+        ok.Should().BeTrue();
+        rule.PlayMinutes.Should().Be(play);
+        rule.RestMinutes.Should().Be(rest);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]

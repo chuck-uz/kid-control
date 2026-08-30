@@ -1,5 +1,6 @@
 using KidControl.Backend.Entities;
 using KidControl.Backend.Persistence;
+using KidControl.Domain.ValueObjects;
 using Microsoft.EntityFrameworkCore;
 
 namespace KidControl.Backend.Fleet;
@@ -133,8 +134,13 @@ public sealed class DeviceAdminService(FleetDbContext db, TimeProvider clock)
         if (policy is null)
             return null;
 
-        if (patch.PlayMinutes is { } play && play > 0) policy.PlayMinutes = play;
-        if (patch.RestMinutes is { } rest && rest > 0) policy.RestMinutes = rest;
+        // Clamp to the domain's valid range [1, MaxMinutes]: custom values arrive from the
+        // Telegram bot, and the agent's ToScheduleRule() throws above MaxMinutes — a stored
+        // out-of-range value would break policy application on the device.
+        if (patch.PlayMinutes is { } play && play > 0)
+            policy.PlayMinutes = Math.Min(play, ScheduleRule.MaxMinutes);
+        if (patch.RestMinutes is { } rest && rest > 0)
+            policy.RestMinutes = Math.Min(rest, ScheduleRule.MaxMinutes);
         if (patch.NightEnabled is { } ne) policy.NightEnabled = ne;
         if (patch.NightStart is { } ns) policy.NightStart = ns;
         if (patch.NightEnd is { } end) policy.NightEnd = end;

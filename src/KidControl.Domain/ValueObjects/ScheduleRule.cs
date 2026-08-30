@@ -33,7 +33,13 @@ public sealed record ScheduleRule
 
     public static ScheduleRule Default { get; } = new(playMinutes: 40, restMinutes: 20);
 
-    /// <summary>Tries to parse a "play/rest" string such as "50/10".</summary>
+    /// <summary>Accepted separators between the two numbers in <see cref="TryParse"/>.</summary>
+    private static readonly char[] Separators = ['/', ' ', ':'];
+
+    /// <summary>
+    /// Tries to parse a "play/rest" string such as "50/10". Phone-friendly: the two numbers
+    /// may be separated by a slash, a space, or a colon ("50/10", "50 10", "50:10").
+    /// </summary>
     public static bool TryParse(string? text, out ScheduleRule rule)
     {
         rule = Default;
@@ -42,7 +48,7 @@ public sealed record ScheduleRule
             return false;
         }
 
-        var parts = text.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var parts = text.Split(Separators, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2 ||
             !int.TryParse(parts[0], out var play) ||
             !int.TryParse(parts[1], out var rest) ||
