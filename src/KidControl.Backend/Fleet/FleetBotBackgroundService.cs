@@ -1,3 +1,4 @@
+using KidControl.Domain.ValueObjects;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -29,6 +30,7 @@ public sealed class FleetBotBackgroundService(
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _selected = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRename = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingTarget = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Guid> _awaitingRule = new();
 
     // ── Bottom (persistent) keyboard — the control folders ────────────────────
     private const string BtnStatus = "📊 Статус", BtnTime = "➕ Время", BtnApp = "🎮 Приложение",
@@ -151,6 +153,21 @@ public sealed class FleetBotBackgroundService(
                 return;
             }
             await Send(chatId, "Выбор версии отменён.", ct);
+        }
+
+        // Awaiting a custom interval? The next message is "игра/отдых", e.g. 50/10 (or "50 10").
+        if (_awaitingRule.TryRemove(chatId, out var ruleId))
+        {
+            if (!t.StartsWith('/') && !IsKeyboardButton(t))
+            {
+                if (ScheduleRule.TryParse(t, out var rule))
+                    await Send(chatId, await actions.SetRuleAsync(ruleId, rule.PlayMinutes, rule.RestMinutes, ct), ct);
+                else
+                    await Send(chatId,
+                        "Не понял интервал. Пришлите игра/отдых в минутах, например 50/10 (каждое число 1–1440).", ct);
+                return;
+            }
+            await Send(chatId, "Ввод интервала отменён.", ct);
         }
 
         // ── Global commands (not device-scoped) ──
@@ -341,6 +358,7 @@ public sealed class FleetBotBackgroundService(
         if (kind == "f") { await OpenFolderAsync(actions, chatId, deviceId, tail.FirstOrDefault() ?? "", ct); return; }
         if (kind == "rvok") { await Send(chatId, await actions.RevokeAsync(deviceId, ct), ct); return; }
         if (kind == "vtag") { _awaitingTarget[chatId] = deviceId; await Send(chatId, "✏️ Отправьте тег версии одним сообщением (например 2.2.0) или latest:", ct); return; }
+        if (kind == "rulecustom") { _awaitingRule[chatId] = deviceId; await Send(chatId, "✏️ Пришлите свой интервал одним сообщением — игра/отдых в минутах, например 50/10:", ct); return; }
         if (kind == "shot")
         {
             var uploadId = Guid.NewGuid().ToString("N");
@@ -407,6 +425,7 @@ public sealed class FleetBotBackgroundService(
                 title = "Режим (игра/отдых):";
                 kb = new(new[] { new[] { B("60/15", $"a:{id}:setrule:60:15"), B("45/15", $"a:{id}:setrule:45:15") },
                                  new[] { B("40/20", $"a:{id}:setrule:40:20"), B("30/10", $"a:{id}:setrule:30:10") },
+                                 new[] { B("✏️ Свой интервал", $"rulecustom:{id}") },
                                  new[] { B("♾️ Откл интервалы", $"a:{id}:intervals:off"), B("✅ Вкл", $"a:{id}:intervals:on") } });
                 break;
             case "night":

@@ -241,4 +241,33 @@ public class HeartbeatServiceTests
         policy.IntervalsEnabled.Should().BeFalse();
         policy.RestMinutes.Should().Be(15); // untouched by the patch
     }
+
+    [Fact]
+    public async Task Custom_interval_applies_arbitrary_play_rest()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var admin = new DeviceAdminService(db, new TestClock(T0));
+
+        await admin.UpdatePolicyAsync(id, new PolicyPatch(PlayMinutes: 50, RestMinutes: 10));
+
+        var policy = await db.DevicePolicies.FindAsync(id);
+        policy!.PlayMinutes.Should().Be(50);
+        policy.RestMinutes.Should().Be(10);
+    }
+
+    [Fact]
+    public async Task Custom_interval_is_clamped_to_domain_max()
+    {
+        await using var db = NewDb();
+        var id = await SeedDeviceAsync(db);
+        var admin = new DeviceAdminService(db, new TestClock(T0));
+
+        // A too-large custom value must never reach the agent (ToScheduleRule throws above the max).
+        await admin.UpdatePolicyAsync(id, new PolicyPatch(PlayMinutes: 999_999, RestMinutes: 10));
+
+        var policy = await db.DevicePolicies.FindAsync(id);
+        policy!.PlayMinutes.Should().Be(KidControl.Domain.ValueObjects.ScheduleRule.MaxMinutes);
+        policy.RestMinutes.Should().Be(10);
+    }
 }

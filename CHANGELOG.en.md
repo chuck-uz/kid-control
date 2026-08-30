@@ -5,6 +5,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/).
 Русская версия: [CHANGELOG.md](CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+- **Custom intervals in the bot.** The "⚙️ Intervals" menu gains a "✏️ Custom interval"
+  button — the parent sends their own play/rest value in one message (e.g. `50/10`,
+  `50 10` or `50:10`) instead of picking a preset. Values are validated and clamped to
+  1–1440 minutes so a malformed rule can't break policy application on the agent.
+
 ## [2.5.0] — 2026-08-29
 
 ### Added
