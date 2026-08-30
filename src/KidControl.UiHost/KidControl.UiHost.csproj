@@ -23,6 +23,12 @@
     <PackageReference Include="Serilog.Formatting.Compact" />
   </ItemGroup>
 
+  <!-- UI Automation (RFC-05 content monitor: read the browser address bar). -->
+  <ItemGroup>
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\KidControl.Contracts\KidControl.Contracts.csproj" />
     <ProjectReference Include="..\KidControl.Platform\KidControl.Platform.csproj" />
