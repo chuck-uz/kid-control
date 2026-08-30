@@ -92,6 +92,21 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task Status_shows_night_window()
+    {
+        await using var db = NewDb();
+        var (actions, _, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        await actions.SetNightWindowAsync(id, new TimeSpan(21, 30, 0), new TimeSpan(8, 0, 0));
+
+        var text = await actions.StatusTextAsync(id);
+        text.Should().Contain("Ночь");
+        text.Should().Contain("21:30");
+        text.Should().Contain("08:00");
+    }
+
+    [Fact]
     public async Task Status_shows_unlimited_instead_of_time_when_intervals_off()
     {
         await using var db = NewDb();

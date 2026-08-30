@@ -50,6 +50,9 @@ public sealed class FleetBotActions(
             ? $"Интервал: 🎮 {d.PlayMinutes}/{d.RestMinutes} мин (игра/отдых)"
             : "Интервал: ♾️ отключён";
         var monitorLine = d.WordMonitorEnabled ? "Монитор: 🛡️ вкл" : "Монитор: 🔓 выкл";
+        var nightLine = d.NightEnabled
+            ? $"Ночь: 🌙 {d.NightStart:hh\\:mm}–{d.NightEnd:hh\\:mm}"
+            : "Ночь: 🔕 выкл";
         var night = d.IsNight ? "\n🌙 Сейчас ночной режим" : "";
         var overrides = string.Concat(
             d.ForceBlocked ? "\n🚫 Принудительная блокировка" : "",
@@ -57,6 +60,7 @@ public sealed class FleetBotActions(
         return $"📊 {d.Name}\n" +
                $"Статус: {d.Status ?? "нет данных"}\n" +
                $"{ruleLine}\n" +
+               $"{nightLine}\n" +
                $"{monitorLine}\n" +
                $"{timeLine}{night}{overrides}\n" +
                $"Версия агента: {d.AgentVersion ?? "—"}\n" +
