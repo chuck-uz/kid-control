@@ -78,6 +78,20 @@ public class FleetBotTests
     }
 
     [Fact]
+    public async Task Status_shows_current_interval_rule()
+    {
+        await using var db = NewDb();
+        var (actions, _, enroll) = Build(db);
+        var id = await EnrollDeviceAsync(actions, enroll);
+
+        await actions.SetRuleAsync(id, 50, 10); // a custom rule
+
+        var text = await actions.StatusTextAsync(id);
+        text.Should().Contain("Интервал");
+        text.Should().Contain("50/10");
+    }
+
+    [Fact]
     public async Task Status_shows_unlimited_instead_of_time_when_intervals_off()
     {
         await using var db = NewDb();

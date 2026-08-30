@@ -12,6 +12,18 @@ versioning follows [Semantic Versioning](https://semver.org/).
   button — the parent sends their own play/rest value in one message (e.g. `50/10`,
   `50 10` or `50:10`) instead of picking a preset. Values are validated and clamped to
   1–1440 minutes so a malformed rule can't break policy application on the agent.
+- **Current interval in quick-select.** The "⚙️ Intervals" menu pins the current rule
+  (including a just-set custom one) as the first button "⭐ play/rest (now)" — one tap to
+  re-apply it.
+- **Current interval in status.** The "📊 Status" screen now shows the active rule
+  ("Интервал: 🎮 play/rest min", or "♾️ off").
+
+### Fixed
+- **The bot no longer lags after a redeploy.** On a container restart the previous
+  long-poll was still held by Telegram, so dropping the queue failed and the bot
+  *replayed the whole backlog* (every queued command) — the source of the response
+  delays. The queue-drop now retries until the old long-poll clears and the backlog is
+  correctly skipped.
 
 ## [2.5.0] — 2026-08-29
 
