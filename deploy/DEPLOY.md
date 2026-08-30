@@ -78,6 +78,21 @@ Pushing to the release repo and rebuilding on the VM (`docker compose up -d --bu
 the backend. Agent binaries still come from GitHub Releases; pin a version per device with
 📦 Версия in the bot (`policy.targetVersion`), or `latest` to track newest (RFC §9).
 
+## Content-monitor lists (RFC-05)
+The word/adult-content lists are seeded from files on the VM (kept out of the public repo) and
+cached in the DB (versioned). On this VM they live in `/opt/kidcontrol/monitor-lists/`, mounted
+read-only into the backend at `/monitor-lists` via `deploy/docker-compose.override.yml`
+(`MONITOR_LISTS_DIR=/monitor-lists`). Files (one entry per line, `#` comments ignored):
+
+- `profanity.txt` — from `bars38/Russian_ban_words` (`words.txt`).
+- `adult_domains.txt` — popular porn domains (`chadmayfield` top-1M ranked list, ~12k).
+- `adult_keywords.txt` — curated adult keywords (RU + EN).
+- `exceptions.txt` — false-positive suppressions (banned root inside an allowed word).
+
+Seeding runs on startup **only when the DB has no terms**. To refresh: replace the files and
+clear `monitor_term`, or `POST /admin/monitor-lists` (`X-Admin-Key`) with the full lists — that
+bumps the version and every agent re-fetches on its next heartbeat.
+
 ## Rollback to standalone
 Clear `Fleet:Url` in the PC's appsettings and restart — the agent returns to the embedded bot
 and local JSON, exactly as before.
