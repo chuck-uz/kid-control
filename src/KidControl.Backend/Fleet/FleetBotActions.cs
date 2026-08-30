@@ -45,12 +45,17 @@ public sealed class FleetBotActions(
         var timeLine = d.IsUnlimited
             ? "Режим: ♾️ без ограничений (интервалы отключены)"
             : $"Осталось: {(d.TimeRemaining is { } tr ? $"{tr:hh\\:mm\\:ss}" : "—")}";
+        // Current accepted interval (the play/rest rule the device is running).
+        var ruleLine = d.IntervalsEnabled && !d.IsUnlimited
+            ? $"Интервал: 🎮 {d.PlayMinutes}/{d.RestMinutes} мин (игра/отдых)"
+            : "Интервал: ♾️ отключён";
         var night = d.IsNight ? "\n🌙 Сейчас ночной режим" : "";
         var overrides = string.Concat(
             d.ForceBlocked ? "\n🚫 Принудительная блокировка" : "",
             d.Paused ? "\n⏸️ Контроль на паузе" : "");
         return $"📊 {d.Name}\n" +
                $"Статус: {d.Status ?? "нет данных"}\n" +
+               $"{ruleLine}\n" +
                $"{timeLine}{night}{overrides}\n" +
                $"Версия агента: {d.AgentVersion ?? "—"}\n" +
                $"На связи: {seen}";

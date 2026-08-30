@@ -82,16 +82,34 @@ public sealed class FleetBotBackgroundService(
 
     private async Task<int> DropPendingAsync(CancellationToken ct)
     {
-        try
+        // On a redeploy the PREVIOUS container's long-poll is still held by Telegram until its
+        // poll timeout expires, so the first getUpdates here can 409 ("terminated by other
+        // getUpdates"). The old code then fell back to offset 0 and REPLAYED the whole backlog
+        // (every queued command) — that was the visible "bot lag" after a deploy. Instead we
+        // retry until the old poll clears, then skip the backlog (offset = lastId + 1). Only if
+        // we truly can't reach Telegram do we start from 0.
+        for (var attempt = 1; attempt <= 12 && !ct.IsCancellationRequested; attempt++)
         {
-            var latest = await bot.GetUpdates(offset: -1, timeout: 0, cancellationToken: ct);
-            return latest.Length > 0 ? latest[^1].Id + 1 : 0;
+            try
+            {
+                var latest = await bot.GetUpdates(offset: -1, timeout: 0, cancellationToken: ct);
+                return latest.Length > 0 ? latest[^1].Id + 1 : 0;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Drop-pending attempt {Attempt}/12 failed (previous long-poll may still be active); retrying.",
+                    attempt);
+                try { await Task.Delay(TimeSpan.FromSeconds(3), ct); } catch (OperationCanceledException) { return 0; }
+            }
         }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to drop pending updates; starting from 0.");
-            return 0;
-        }
+
+        logger.LogWarning("Could not cleanly drop pending updates; starting from 0.");
+        return 0;
     }
 
     private async Task HandleSafeAsync(TgUpdate update, CancellationToken ct)
@@ -423,10 +441,23 @@ public sealed class FleetBotBackgroundService(
                 break;
             case "rules":
                 title = "Режим (игра/отдых):";
-                kb = new(new[] { new[] { B("60/15", $"a:{id}:setrule:60:15"), B("45/15", $"a:{id}:setrule:45:15") },
-                                 new[] { B("40/20", $"a:{id}:setrule:40:20"), B("30/10", $"a:{id}:setrule:30:10") },
-                                 new[] { B("✏️ Свой интервал", $"rulecustom:{id}") },
-                                 new[] { B("♾️ Откл интервалы", $"a:{id}:intervals:off"), B("✅ Вкл", $"a:{id}:intervals:on") } });
+                var dev = (await actions.ListDevicesAsync(ct)).FirstOrDefault(x => x.Id == id);
+                var ruleRows = new List<InlineKeyboardButton[]>();
+                // The currently applied rule (including a just-set custom one) as a one-tap
+                // quick-select — pinned at the top so the last custom interval is always reusable.
+                if (dev is { IntervalsEnabled: true })
+                {
+                    ruleRows.Add(new[]
+                    {
+                        B($"⭐ {dev.PlayMinutes}/{dev.RestMinutes} (сейчас)",
+                          $"a:{id}:setrule:{dev.PlayMinutes}:{dev.RestMinutes}")
+                    });
+                }
+                ruleRows.Add(new[] { B("60/15", $"a:{id}:setrule:60:15"), B("45/15", $"a:{id}:setrule:45:15") });
+                ruleRows.Add(new[] { B("40/20", $"a:{id}:setrule:40:20"), B("30/10", $"a:{id}:setrule:30:10") });
+                ruleRows.Add(new[] { B("✏️ Свой интервал", $"rulecustom:{id}") });
+                ruleRows.Add(new[] { B("♾️ Откл интервалы", $"a:{id}:intervals:off"), B("✅ Вкл", $"a:{id}:intervals:on") });
+                kb = new(ruleRows);
                 break;
             case "night":
                 title = "Ночной режим:";
