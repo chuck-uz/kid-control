@@ -5,6 +5,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/).
 Русская версия: [CHANGELOG.md](CHANGELOG.md).
 
+## [2.7.0] — 2026-08-30
+
+### Added
+- **Monitor: keyboard + browser URL (RFC-05, stage 3b).** Two sources join the window
+  title: what the child **types** (a low-level keyboard hook — a short in-memory buffer,
+  never persisted) and the active tab's **URL** (via UI Automation, Chromium/Firefox) — so
+  porn **domains** by address and search queries are now caught too. The hook is installed
+  only while the monitor is on and never disturbs the user's own typing.
+
 ## [2.6.0] — 2026-08-30
 
 ### Added
@@ -14,7 +23,7 @@ versioning follows [Semantic Versioning](https://semver.org/).
   parent a Telegram alert with a screenshot. A "🛡️ Monitor" toggle in the Control menu
   (on by default), a line in 📊 Status, anti-spam (60s/device + 10/min), and metadata-only
   storage (no text, no screenshots) on the backend. The "keyboard" and "browser URL"
-  sources land in the next release.
+  sources were added in 2.7.0.
 - **Custom intervals in the bot.** The "⚙️ Intervals" menu gains a "✏️ Custom interval"
   button — the parent sends their own play/rest value in one message (e.g. `50/10`,
   `50 10` or `50:10`) instead of picking a preset. Values are validated and clamped to
