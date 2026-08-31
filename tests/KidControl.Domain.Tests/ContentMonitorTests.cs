@@ -49,15 +49,18 @@ public sealed class ContentMonitorTests
     }
 
     [Fact]
-    public void Adult_keyword_in_url_on_neutral_host_hits()
+    public void Urls_are_matched_by_domain_only_not_keywords()
     {
-        var m = Monitor(adultWords: ["porno"], adultDomains: ["pornhub.com"]);
+        var m = Monitor(adultWords: ["porno", "xxx"], adultDomains: ["pornhub.com"]);
 
-        // Neutral host, adult query in the URL text.
-        var hit = m.ScanUrl("https://www.youtube.com/results?search_query=porno");
+        // A keyword in the URL text/host must NOT hit (short substrings match too much URL noise);
+        // it is caught instead via the keyboard and window title.
+        m.ScanUrl("https://www.youtube.com/results?search_query=porno").Should().BeNull();
+        m.ScanUrl("https://essex.example.com/xxx-token-123").Should().BeNull();
 
-        hit!.Category.Should().Be(MonitorCategory.Adult);
-        hit.Source.Should().Be(MonitorSource.Url);
+        // But the adult DOMAIN still hits, and the keyword still hits on a title.
+        m.ScanUrl("https://www.pornhub.com/x")!.Category.Should().Be(MonitorCategory.Adult);
+        m.ScanText("porno", MonitorSource.Window, "porno")!.Category.Should().Be(MonitorCategory.Adult);
     }
 
     [Fact]
