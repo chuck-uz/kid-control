@@ -5,7 +5,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versioning follows [Semantic Versioning](https://semver.org/).
 Русская версия: [CHANGELOG.md](CHANGELOG.md).
 
-## [Unreleased]
+## [2.8.0] — 2026-08-30
+
+### Fixed
+- **Monitor false positives on URLs.** Short words (e.g. `xxx`) occur inside ordinary
+  addresses/tokens and caused many false alerts. URLs are now matched **by domain only**
+  (the porn-domain list); keywords match on the window title and keyboard, where the text is
+  meaningful. `xxx` was also dropped from the keyword list.
 
 ### Added
 - **Custom night window in the bot.** The "🌙 Night" menu gains a "✏️ Custom window"

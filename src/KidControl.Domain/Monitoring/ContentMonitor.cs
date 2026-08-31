@@ -68,8 +68,11 @@ public sealed class ContentMonitor
     }
 
     /// <summary>
-    /// Scans a URL: first the host against the adult-domain list (→ Adult), then the URL text
-    /// against the keyword/profanity lists (catches adult queries on neutral hosts).
+    /// Scans a URL by its HOST against the adult-domain list only. URLs are deliberately NOT
+    /// keyword-scanned: short substrings (e.g. "xxx", "sex") occur inside innocuous paths, query
+    /// tokens and hostnames ("essex.com", CDN ids), which produced many false positives. Adult
+    /// queries are still caught on the keyboard and in the window title, where matching text is
+    /// human-readable.
     /// </summary>
     public MonitorHit? ScanUrl(string? url)
     {
@@ -84,7 +87,7 @@ public sealed class ContentMonitor
             return new MonitorHit(MonitorCategory.Adult, domain, MonitorSource.Url, host.Length > 0 ? host : url);
         }
 
-        return ScanText(url, MonitorSource.Url, url);
+        return null;
     }
 
     private bool IsSuppressed(string normalizedText, string matchedNorm)
