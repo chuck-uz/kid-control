@@ -74,8 +74,11 @@ Caddy, proxy your hostname to `127.0.0.1:8088` there instead of using the `caddy
 **DoD met** when: backend is reachable over HTTPS, and one real PC is controlled from the bot.
 
 ## 6. Update / rollback
-Pushing to the release repo and rebuilding on the VM (`docker compose up -d --build`) updates
-the backend. Agent binaries still come from GitHub Releases; pin a version per device with
+`./deploy/redeploy-vm.sh` does the whole round trip from this Mac: publish, build the amd64
+image, ship it over ssh (`docker save | load` -- the VM has no SDK), restart the backend,
+drop the image the deploy replaced, and check `/health/db`. Every `docker load` leaves the
+previous image untagged, and nothing collects those on its own, so the prune belongs in the
+same command; a weekly `docker image prune -f` on the VM is only a safety net. Agent binaries still come from GitHub Releases; pin a version per device with
 📦 Версия in the bot (`policy.targetVersion`), or `latest` to track newest (RFC §9).
 
 ## Content-monitor lists (RFC-05)
