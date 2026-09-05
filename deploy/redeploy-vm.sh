@@ -17,9 +17,14 @@ cd "$(dirname "$0")/.."
 
 say() { printf '\n==> %s\n' "$1"; }
 
+# The SDK is a side-by-side install here, so it is missing from PATH in non-login shells.
+DOTNET="${DOTNET:-$(command -v dotnet || true)}"
+[ -n "$DOTNET" ] || DOTNET="$HOME/.dotnet/dotnet"
+
 if [ -z "${SKIP_PUBLISH:-}" ]; then
+  [ -x "$DOTNET" ] || { echo "no dotnet SDK: set DOTNET=/path/to/dotnet, or SKIP_PUBLISH=1 to reuse ./publish-backend" >&2; exit 1; }
   say 'Publishing the backend (framework-dependent, portable IL)'
-  dotnet publish src/KidControl.Backend -c Release -o ./publish-backend
+  "$DOTNET" publish src/KidControl.Backend -c Release -o ./publish-backend
 fi
 
 say "Building $IMAGE for linux/amd64"
@@ -38,12 +43,19 @@ ssh -i "$KEY" "$VM" "cd $REMOTE_DIR && docker compose up -d backend"
 say 'Removing the image this deploy replaced'
 ssh -i "$KEY" "$VM" 'docker image prune -f; df -h / | tail -1'
 
+# The backend needs a few seconds to open the port (host start, EF migrations, bot login),
+# so a single immediate probe reports 502 on a deploy that went perfectly well.
 say 'Verifying'
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$HEALTH" || true)
+code=""
+for _ in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH" || true)
+  [ "$code" = "200" ] && break
+  sleep 3
+done
 if [ "$code" = "200" ]; then
   echo "OK: $HEALTH -> 200"
 else
-  echo "FAILED: $HEALTH -> ${code:-no answer}" >&2
+  echo "FAILED: $HEALTH -> ${code:-no answer} after 90s" >&2
   ssh -i "$KEY" "$VM" "cd $REMOTE_DIR && docker compose logs --tail 40 backend" >&2
   exit 1
 fi
