@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# Redeploy the fleet backend to the Tashkent VM, in one command, from this Mac.
+# Redeploy the fleet backend to the Oracle Cloud VM (Chicago, Ampere A1 = arm64), in one
+# command, from this Mac.
 #
-# The VM has no .NET SDK and too little RAM to build the image, so the image is built
-# here for linux/amd64 and shipped over ssh (docker save | load). See deploy/DEPLOY.md.
+# The image is built here for linux/arm64 -- natively, the Mac is Apple Silicon -- and
+# shipped over ssh (docker save | load). See deploy/DEPLOY.md.
+#
+# Oracle images only allow ssh as ubuntu, and docker needs root there, hence sudo on
+# every remote docker call.
+#
+# The tag keeps its historical name "amd64": the VM's docker-compose.override.yml (not in
+# git) runs image kidcontrol-backend:amd64 with pull_policy: never. The image itself is
+# arm64. Renaming the tag means editing that file on the VM in the same step.
 #
 #   ./deploy/redeploy-vm.sh            # publish, build, ship, restart, verify
 #   SKIP_PUBLISH=1 ./deploy/redeploy-vm.sh   # reuse ./publish-backend as it is
 set -euo pipefail
 
-VM="${VM:-root@157.22.133.185}"
-KEY="${KEY:-$HOME/.ssh/servercore_smm}"
+VM="${VM:-ubuntu@147.224.169.237}"
+KEY="${KEY:-$HOME/.ssh/oracle_uz}"
 IMAGE=kidcontrol-backend:amd64
 REMOTE_DIR=/opt/kidcontrol/deploy
 HEALTH="${HEALTH:-https://kidcontrol.example.com/health/db}"
@@ -27,21 +35,21 @@ if [ -z "${SKIP_PUBLISH:-}" ]; then
   "$DOTNET" publish src/KidControl.Backend -c Release -o ./publish-backend
 fi
 
-say "Building $IMAGE for linux/amd64"
-docker buildx build --platform linux/amd64 -f deploy/Dockerfile.runtime -t "$IMAGE" --load .
+say "Building $IMAGE for linux/arm64"
+docker buildx build --platform linux/arm64 -f deploy/Dockerfile.runtime -t "$IMAGE" --load .
 
 say 'Shipping the image to the VM'
-docker save "$IMAGE" | gzip | ssh -i "$KEY" "$VM" 'gunzip | docker load'
+docker save "$IMAGE" | gzip | ssh -i "$KEY" "$VM" 'gunzip | sudo docker load'
 
 say 'Restarting the backend'
-ssh -i "$KEY" "$VM" "cd $REMOTE_DIR && docker compose up -d backend"
+ssh -i "$KEY" "$VM" "cd $REMOTE_DIR && sudo docker compose up -d backend"
 
 # Every 'docker load' installs a new image and leaves the previous one untagged.
 # Nothing collects those: on 5 Sep 2026 eighteen of them (~365 MB each) had piled up
 # and the 30 GB disk was 92% full. Prune right here, while the context is obvious --
 # a weekly cron on the VM only catches what this step misses.
 say 'Removing the image this deploy replaced'
-ssh -i "$KEY" "$VM" 'docker image prune -f; df -h / | tail -1'
+ssh -i "$KEY" "$VM" 'sudo docker image prune -f; df -h / | tail -1'
 
 # The backend needs a few seconds to open the port (host start, EF migrations, bot login),
 # so a single immediate probe reports 502 on a deploy that went perfectly well.
@@ -56,6 +64,6 @@ if [ "$code" = "200" ]; then
   echo "OK: $HEALTH -> 200"
 else
   echo "FAILED: $HEALTH -> ${code:-no answer} after 90s" >&2
-  ssh -i "$KEY" "$VM" "cd $REMOTE_DIR && docker compose logs --tail 40 backend" >&2
+  ssh -i "$KEY" "$VM" "cd $REMOTE_DIR && sudo docker compose logs --tail 40 backend" >&2
   exit 1
 fi

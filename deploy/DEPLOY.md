@@ -1,15 +1,15 @@
-# KidControl fleet backend — deploy (Tashkent VM)
+# KidControl fleet backend — deploy (Oracle Cloud VM)
 
 Brings up the fleet control-plane behind HTTPS and points one real agent at it. See
 [RFC-01](../docs/RFC-01-fleet-backend.md) for the design.
 
 ## What runs where
-- **VM (Tashkent, `157.22.133.185`)** — `postgres` + `backend` (+ Caddy for TLS), via
+- **VM (Oracle Cloud, Chicago, `147.224.169.237`, Ampere A1 = arm64; ssh only as `ubuntu`, docker via `sudo`)** — `postgres` + `backend` (+ Caddy for TLS), via
   `docker compose`. Secrets rendered from **Infisical** into `deploy/.env`.
 - **Windows PC(s)** — the KidControl agent in **managed mode** (`Fleet:Url` set), enrolled
   with a one-time code from the bot.
 
-Meta is blocked in RF but this VM is in **Uzbekistan** — Telegram long-poll works outbound.
+The VM is in the **US (Chicago)** — Telegram long-poll works outbound. (Until 14 Sep 2026 it ran on a Servercore VM in Tashkent.)
 
 ## 1. Prerequisites
 - DNS: point a hostname (e.g. `fleet.example.com`) at the VM's public IP.
@@ -74,7 +74,7 @@ Caddy, proxy your hostname to `127.0.0.1:8088` there instead of using the `caddy
 **DoD met** when: backend is reachable over HTTPS, and one real PC is controlled from the bot.
 
 ## 6. Update / rollback
-`./deploy/redeploy-vm.sh` does the whole round trip from this Mac: publish, build the amd64
+`./deploy/redeploy-vm.sh` does the whole round trip from this Mac: publish, build the arm64
 image, ship it over ssh (`docker save | load` -- the VM has no SDK), restart the backend,
 drop the image the deploy replaced, and check `/health/db`. Every `docker load` leaves the
 previous image untagged, and nothing collects those on its own, so the prune belongs in the
