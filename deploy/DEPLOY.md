@@ -76,7 +76,8 @@ Caddy, proxy your hostname to `127.0.0.1:8088` there instead of using the `caddy
 ## 6. Update / rollback
 `./deploy/redeploy-vm.sh` does the whole round trip from this Mac: publish, build the arm64
 image, ship it over ssh (`docker save | load` -- the VM has no SDK), restart the backend,
-drop the image the deploy replaced, and check `/health/db`. Every `docker load` leaves the
+drop the image the deploy replaced, and check `/health/db`. The public health URL is not in git: pass `HEALTH=https://<host>/health/db`
+or keep it in the untracked `deploy/redeploy.local.env` (copy `deploy/redeploy.local.env.example`). Every `docker load` leaves the
 previous image untagged, and nothing collects those on its own, so the prune belongs in the
 same command; a weekly `docker image prune -f` on the VM is only a safety net. Agent binaries still come from GitHub Releases; pin a version per device with
 📦 Версия in the bot (`policy.targetVersion`), or `latest` to track newest (RFC §9).

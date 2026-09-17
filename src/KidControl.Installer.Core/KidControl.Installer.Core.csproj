@@ -15,6 +15,19 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" />
   </ItemGroup>
 
+  <!--
+    Default fleet backend URL, pre-filled in the enrollment window. Not in git: it comes from
+    the untracked Directory.Build.local.props (KcBackendUrl) or the KC_BACKEND_URL environment
+    variable at build time. Empty = no default; the operator must enter the URL.
+    Read at runtime from AssemblyMetadata("KcBackendUrl") by FleetConfigWriter.
+  -->
+  <PropertyGroup>
+    <KcBackendUrl Condition="'$(KcBackendUrl)' == ''">$(KC_BACKEND_URL)</KcBackendUrl>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(KcBackendUrl)' != ''">
+    <AssemblyMetadata Include="KcBackendUrl" Value="$(KcBackendUrl)" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\KidControl.Contracts\KidControl.Contracts.csproj" />
   </ItemGroup>

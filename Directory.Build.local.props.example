@@ -1,0 +1,10 @@
+<Project>
+  <!--
+    Copy to Directory.Build.local.props (untracked, gitignored) and set your own values.
+    Alternatively set the KC_BACKEND_URL environment variable at build time.
+  -->
+  <PropertyGroup>
+    <!-- Fleet backend pre-filled in the installer's enrollment window. Empty = no default. -->
+    <KcBackendUrl>https://kidcontrol.example.com</KcBackendUrl>
+  </PropertyGroup>
+</Project>

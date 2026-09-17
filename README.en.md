@@ -84,6 +84,10 @@ fleet enrollment and enables self-update):
 deploy.bat
 ```
 
+The backend URL is not stored in the repo: put a `deploy.local.bat` next to the script
+(template: `deploy.local.example.bat`) with `set "KC_BACKEND_URL=https://..."`, or set
+`KC_BACKEND_URL` in the environment; `KC_BACKEND_URL=standalone` is the classic install with the built-in bot.
+
 It downloads the latest release, installs the agent silently and writes a protected
 `%ProgramData%\KidControl\appsettings.json` (fleet URL, enroll code, auto-update). Update
 an already-installed agent manually with:

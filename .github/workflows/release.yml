@@ -43,6 +43,10 @@ jobs:
       # any artifact is packaged, so a red test blocks the release outright.
       - name: Build, test and publish
         shell: pwsh
+        # Default fleet backend baked into the installer (MSBuild KcBackendUrl). Kept out of
+        # git: set the repository variable KC_BACKEND_URL. Unset = no default URL.
+        env:
+          KC_BACKEND_URL: ${{ vars.KC_BACKEND_URL }}
         run: .\build.ps1
 
       # Confirm the tag actually stamped the binaries (catches a missing MinVerTagPrefix).

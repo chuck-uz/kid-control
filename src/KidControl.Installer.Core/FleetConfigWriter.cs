@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -13,9 +14,17 @@ public sealed class FleetConfigWriter(InstallLocations? locations = null)
 {
     private readonly InstallLocations _loc = locations ?? new InstallLocations();
 
-    public const string DefaultBackendUrl = "https://kidcontrol.example.com";
+    /// <summary>
+    /// Backend URL baked in at build time (MSBuild property <c>KcBackendUrl</c>, from the untracked
+    /// <c>Directory.Build.local.props</c> or the <c>KC_BACKEND_URL</c> env var). Empty when the
+    /// build set none -- then the URL must be supplied explicitly.
+    /// </summary>
+    public static string DefaultBackendUrl { get; } =
+        typeof(FleetConfigWriter).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "KcBackendUrl")?.Value?.Trim() ?? string.Empty;
 
-    /// <summary>Current Fleet:Url from appsettings, or the default when unset.</summary>
+    /// <summary>Current Fleet:Url from appsettings, or the build-time default (possibly empty) when unset.</summary>
     public string ReadBackendUrl()
     {
         var root = Load();
@@ -26,6 +35,11 @@ public sealed class FleetConfigWriter(InstallLocations? locations = null)
     /// <summary>Write Fleet:Url + Fleet:EnrollCode, preserving all other config. Returns the path.</summary>
     public string Write(string backendUrl, string enrollCode)
     {
+        if (string.IsNullOrWhiteSpace(backendUrl))
+            throw new ArgumentException(
+                "Backend URL is required: no default was set at build time (KcBackendUrl / KC_BACKEND_URL).",
+                nameof(backendUrl));
+
         var root = Load();
         if (root["Fleet"] is not JsonObject fleet)
         {

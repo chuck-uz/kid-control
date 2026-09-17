@@ -14,14 +14,27 @@
 #
 #   ./deploy/redeploy-vm.sh            # publish, build, ship, restart, verify
 #   SKIP_PUBLISH=1 ./deploy/redeploy-vm.sh   # reuse ./publish-backend as it is
+#
+# Needs HEALTH (env or deploy/redeploy.local.env).
 set -euo pipefail
 
 VM="${VM:-ubuntu@147.224.169.237}"
 KEY="${KEY:-$HOME/.ssh/oracle_uz}"
 IMAGE=kidcontrol-backend:amd64
 REMOTE_DIR=/opt/kidcontrol/deploy
-HEALTH="${HEALTH:-https://kidcontrol.example.com/health/db}"
 cd "$(dirname "$0")/.."
+
+# Real hostnames stay out of git: HEALTH (the public health URL, e.g.
+# https://kidcontrol.example.com/health/db) comes from the environment or from the
+# untracked deploy/redeploy.local.env (see deploy/redeploy.local.env.example).
+# A HEALTH already in the environment wins over the file.
+if [ -f deploy/redeploy.local.env ]; then
+  env_health="${HEALTH:-}"
+  # shellcheck source=/dev/null
+  . deploy/redeploy.local.env
+  HEALTH="${env_health:-${HEALTH:-}}"
+fi
+: "${HEALTH:?set HEALTH=https://<backend-host>/health/db, or put it in deploy/redeploy.local.env}"
 
 say() { printf '\n==> %s\n' "$1"; }
 

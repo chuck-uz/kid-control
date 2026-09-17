@@ -53,6 +53,12 @@ dotnet test  tests/KidControl.Domain.Tests tests/KidControl.Application.Tests \
              tests/KidControl.Infrastructure.Tests
 ```
 
+The installer's default fleet URL (pre-filled in the enrollment window) is a build setting,
+not source: set `KcBackendUrl` in an untracked `Directory.Build.local.props` (copy
+`Directory.Build.local.props.example`) or `KC_BACKEND_URL` in the environment. Unset = no
+default, the operator types the URL. Releases take it from the repository variable
+`KC_BACKEND_URL`. Real hostnames never go into tracked files; use `example.com` in docs.
+
 CI (`.github/workflows/ci.yml`) runs the same build + tests with coverage on every push
 and PR. The agent projects won't compile off Windows — on macOS/Linux build and test the
 `net8.0` projects only.

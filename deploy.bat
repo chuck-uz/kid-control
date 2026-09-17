@@ -10,7 +10,7 @@ rem
 rem  Flow: self-elevate -> (optional) FULL removal of any previous install ->
 rem        ensure .NET 8 Desktop Runtime -> download release zip -> extract ->
 rem        install (silent if a token is set, else GUI) -> write managed Fleet config
-rem        (if KC_BACKEND_URL set) -> restart + confirm the service is Running.
+rem        (unless KC_BACKEND_URL=standalone) -> restart + confirm the service is Running.
 rem  Debug log: %TEMP%\kidcontrol-deploy.log
 rem ============================================================================
 
@@ -43,9 +43,13 @@ rem  BEFORE installing the new version. 0 = plain over-install (keeps config/tim
 set "KC_CLEAN=1"
 
 rem  Managed mode (control the PC from the backend). Set both to enroll on install:
-rem    KC_BACKEND_URL = backend base URL (blank = classic standalone with the built-in bot)
+rem    KC_BACKEND_URL = backend base URL, or "standalone" for the classic built-in bot.
+rem                     NOT set here (kept out of git): define it in the environment or
+rem                     in deploy.local.bat next to this script, e.g.
+rem                       set "KC_BACKEND_URL=https://kidcontrol.example.com"
+rem                     deploy.local.bat is read after elevation and may override any
+rem                     setting above or below.
 rem    KC_ENROLL_CODE = one-time code from the bot's /enroll
-set "KC_BACKEND_URL=https://kidcontrol.example.com"
 set "KC_ENROLL_CODE="
 
 rem  Self-update settings written after install:
@@ -80,6 +84,24 @@ if !errorlevel! NEQ 0 (
     exit /b
 )
 call :log "running elevated: OK"
+
+if exist "%~dp0deploy.local.bat" (
+    call :log "loading %~dp0deploy.local.bat"
+    call "%~dp0deploy.local.bat"
+)
+if not defined KC_BACKEND_URL (
+    call :log "ERROR: KC_BACKEND_URL is not set"
+    echo(
+    echo KC_BACKEND_URL is not set. Create deploy.local.bat next to this script with:
+    echo     set "KC_BACKEND_URL=https://your-backend-host"
+    echo or set KC_BACKEND_URL in the environment.
+    echo Use KC_BACKEND_URL=standalone for the classic install with the built-in bot.
+    echo(
+    pause
+    exit /b 8
+)
+if /i "!KC_BACKEND_URL!"=="standalone" set "KC_BACKEND_URL="
+call :log "backend = !KC_BACKEND_URL!"
 
 echo(
 echo === KidControl deploy (release): %KC_OWNER%/%KC_REPO% ===
